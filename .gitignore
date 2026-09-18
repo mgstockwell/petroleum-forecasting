@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Go
+simulate
+simulate.exe
+
+# Data & Output
+*.json
+*.csv
+*.pdf
+*.png
