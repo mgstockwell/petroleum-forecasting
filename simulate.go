@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -35,7 +36,7 @@ const (
 )
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	seed := time.Now().UnixNano()
 
 	file, err := os.Open("params.json")
 	if err != nil {
@@ -44,7 +45,9 @@ func main() {
 	defer file.Close()
 
 	var p Params
-	json.NewDecoder(file).Decode(&p)
+	if err := json.NewDecoder(file).Decode(&p); err != nil {
+		log.Fatalf("failed to decode params.json: %v", err)
+	}
 
 	var wg sync.WaitGroup
 	gasResults := make([][]string, Sims)
@@ -55,6 +58,7 @@ func main() {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
+			rng := rand.New(rand.NewSource(seed + int64(idx)))
 
 			st := p.S0
 			cGas := p.CrackGas0
@@ -64,18 +68,18 @@ func main() {
 			diesPath := make([]string, Days)
 
 			for t := 0; t < Days; t++ {
-				z := rand.NormFloat64()
+				z := rng.NormFloat64()
 
-				jump := 0.0
-				if rand.Float64() < (p.JumpLambda * Dt) {
-					jump = math.Exp(rand.NormFloat64()*0.05 + p.JumpMu)
+				jumpShock := 0.0
+				if rng.Float64() < (p.JumpLambda * Dt) {
+					jumpShock = math.Exp(rng.NormFloat64()*0.05+p.JumpMu) - 1.0
 				}
 
-				dS := Mu*st*Dt + p.SigmaCrude*st*math.Sqrt(Dt)*z + jump*st
+				dS := Mu*st*Dt + p.SigmaCrude*st*math.Sqrt(Dt)*z + jumpShock*st
 				st += dS
 
-				cGas += rand.NormFloat64() * p.SigmaCrackGas * 0.1
-				cDies += rand.NormFloat64() * p.SigmaCrackDiesel * 0.1
+				cGas += rng.NormFloat64() * p.SigmaCrackGas * 0.1
+				cDies += rng.NormFloat64() * p.SigmaCrackDiesel * 0.1
 
 				gasPrice := (st / 42.0) + (cGas / 42.0) + TaxG + DistG
 				diesPrice := (st / 42.0) + (cDies / 42.0) + TaxD + DistD
@@ -89,15 +93,23 @@ func main() {
 	}
 	wg.Wait()
 
-	writeCSV("results_gas.csv", gasResults)
-	writeCSV("results_diesel.csv", dieselResults)
+	if err := writeCSV("results_gas.csv", gasResults); err != nil {
+		log.Fatalf("failed to write gas results: %v", err)
+	}
+	if err := writeCSV("results_diesel.csv", dieselResults); err != nil {
+		log.Fatalf("failed to write diesel results: %v", err)
+	}
 	fmt.Println("Simulation complete. Output saved to CSVs.")
 }
 
-func writeCSV(filename string, data [][]string) {
-	file, _ := os.Create(filename)
+func writeCSV(filename string, data [][]string) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
 	defer file.Close()
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 	writer.WriteAll(data)
+	return writer.Error()
 }
