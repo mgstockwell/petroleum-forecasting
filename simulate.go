@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -40,7 +41,7 @@ func main() {
 
 	file, err := os.Open("params.json")
 	if err != nil {
-		panic("Run calibrate.py first to generate params.json")
+		log.Fatalf("failed to open params.json: %v. Run calibrate.py first to generate params.json", err)
 	}
 	defer file.Close()
 
@@ -50,14 +51,18 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
+	workers := runtime.GOMAXPROCS(0)
+	sem := make(chan struct{}, workers)
 	gasResults := make([][]string, Sims)
 	dieselResults := make([][]string, Sims)
 
 	fmt.Println("Running 10,000 parallel paths...")
 	for i := 0; i < Sims; i++ {
+		sem <- struct{}{}
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			rng := rand.New(rand.NewSource(seed + int64(idx)))
 
 			st := p.S0

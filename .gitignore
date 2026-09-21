@@ -9,7 +9,8 @@ simulate
 simulate.exe
 
 # Data & Output
-*.json
-*.csv
-*.pdf
-*.png
+params.json
+results_gas.csv
+results_diesel.csv
+*_forecast.pdf
+*_forecast.png

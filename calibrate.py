@@ -8,15 +8,19 @@ import yfinance as yf
 def calibrate_daily_parameters(lookback_days=252):
     print("Fetching NYMEX data...")
     tickers = ["CL=F", "RB=F", "HO=F"]
-    data = yf.download(tickers, period=f"{lookback_days}d")["Adj Close"]
+    raw_data = yf.download(tickers, period=f"{lookback_days}d")
+    price_column = "Adj Close" if "Adj Close" in raw_data else "Close"
+    data = raw_data[price_column]
 
     returns = np.log(data / data.shift(1)).dropna()
+    if returns.empty:
+        raise ValueError("No return observations were available for calibration.")
     volatilities = returns.ewm(alpha=0.06).std().iloc[-1] * np.sqrt(252)
 
     z_scores = (returns["CL=F"] - returns["CL=F"].mean()) / returns["CL=F"].std()
     jumps = returns["CL=F"][abs(z_scores) > 2.0]
 
-    jump_lambda = len(jumps) / (lookback_days / 252)
+    jump_lambda = len(jumps) * 252 / len(returns)
     jump_mu = jumps.mean() if len(jumps) > 0 else 0.15
 
     current_prices = data.iloc[-1]

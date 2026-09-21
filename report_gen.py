@@ -14,19 +14,20 @@ def generate_chart(commodity, filename, color_base):
     p75 = df.quantile(0.75, axis=0)
     p90 = df.quantile(0.90, axis=0)
 
-    plt.figure(figsize=(10, 6))
-    plt.fill_between(days, p10, p90, color=color_base, alpha=0.2, label="10th-90th Percentile (Tail Risk)")
-    plt.fill_between(days, p25, p75, color=color_base, alpha=0.4, label="25th-75th Percentile (Normal Range)")
-    plt.plot(days, p50, color="black", linewidth=2, label="Median Forecast")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.fill_between(days, p10, p90, color=color_base, alpha=0.2, label="10th-90th Percentile (Tail Risk)")
+    ax.fill_between(days, p25, p75, color=color_base, alpha=0.4, label="25th-75th Percentile (Normal Range)")
+    ax.plot(days, p50, color="black", linewidth=2, label="Median Forecast")
 
-    plt.title(f"180-Day Stochastic Forecast: Retail {commodity}")
-    plt.xlabel("Days Forward")
-    plt.ylabel("Price (USD / Gallon)")
-    plt.legend(loc="upper left")
-    plt.grid(True, alpha=0.3)
+    ax.set_title(f"180-Day Stochastic Forecast: Retail {commodity}")
+    ax.set_xlabel("Days Forward")
+    ax.set_ylabel("Price (USD / Gallon)")
+    ax.legend(loc="upper left")
+    ax.grid(True, alpha=0.3)
 
     out_file = f"{commodity.lower()}_forecast.png"
-    plt.savefig(out_file, bbox_inches="tight")
+    fig.savefig(out_file, bbox_inches="tight")
+    plt.close(fig)
     print(f"Saved {out_file}")
 
 
