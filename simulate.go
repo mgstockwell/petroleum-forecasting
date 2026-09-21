@@ -81,7 +81,7 @@ func main() {
 				}
 
 				dS := Mu*st*Dt + p.SigmaCrude*st*math.Sqrt(Dt)*z + jumpShock*st
-				st += dS
+				st = math.Max(st+dS, 0.01)
 
 				cGas += rng.NormFloat64() * p.SigmaCrackGas * 0.1
 				cDies += rng.NormFloat64() * p.SigmaCrackDiesel * 0.1

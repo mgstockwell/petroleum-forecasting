@@ -7,7 +7,7 @@ def generate_chart(commodity, filename, color_base):
     print(f"Generating chart for {commodity}...")
     df = pd.read_csv(filename, header=None).astype(float)
 
-    days = np.arange(1, 181)
+    days = np.arange(1, df.shape[1] + 1)
     p10 = df.quantile(0.10, axis=0)
     p25 = df.quantile(0.25, axis=0)
     p50 = df.quantile(0.50, axis=0)

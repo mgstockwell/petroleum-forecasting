@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 import numpy as np
+import pandas as pd
 import yfinance as yf
 
 
@@ -9,8 +10,13 @@ def calibrate_daily_parameters(lookback_days=252):
     print("Fetching NYMEX data...")
     tickers = ["CL=F", "RB=F", "HO=F"]
     raw_data = yf.download(tickers, period=f"{lookback_days}d")
-    price_column = "Adj Close" if "Adj Close" in raw_data else "Close"
-    data = raw_data[price_column]
+    if isinstance(raw_data.columns, pd.MultiIndex):
+        available_fields = raw_data.columns.get_level_values(0)
+        price_column = "Adj Close" if "Adj Close" in available_fields else "Close"
+        data = raw_data.xs(price_column, axis=1, level=0)
+    else:
+        price_column = "Adj Close" if "Adj Close" in raw_data.columns else "Close"
+        data = raw_data[price_column]
 
     returns = np.log(data / data.shift(1)).dropna()
     if returns.empty:
