@@ -30,8 +30,9 @@ def calibrate_daily_parameters(lookback_days=252):
     jump_mu = jumps.mean() if len(jumps) > 0 else 0.15
 
     current_prices = data.iloc[-1]
-    crack_gas_current = (current_prices["RB=F"] * 42) - current_prices["CL=F"]
-    crack_diesel_current = (current_prices["HO=F"] * 42) - current_prices["CL=F"]
+    crude_per_gallon = current_prices["CL=F"] / 42
+    crack_gas_current = current_prices["RB=F"] - crude_per_gallon
+    crack_diesel_current = current_prices["HO=F"] - crude_per_gallon
 
     params = {
         "s0": float(current_prices["CL=F"]),

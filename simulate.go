@@ -77,17 +77,17 @@ func main() {
 
 				jumpShock := 0.0
 				if rng.Float64() < (p.JumpLambda * Dt) {
-					jumpShock = math.Exp(rng.NormFloat64()*0.05+p.JumpMu) - 1.0
+					jumpShock = rng.NormFloat64()*0.05 + p.JumpMu
 				}
 
-				dS := Mu*st*Dt + p.SigmaCrude*st*math.Sqrt(Dt)*z + jumpShock*st
-				st = math.Max(st+dS, 0.01)
+				st *= math.Exp((Mu-0.5*p.SigmaCrude*p.SigmaCrude)*Dt + p.SigmaCrude*math.Sqrt(Dt)*z + jumpShock)
+				st = math.Max(st, 0.01)
 
 				cGas += rng.NormFloat64() * p.SigmaCrackGas * 0.1
 				cDies += rng.NormFloat64() * p.SigmaCrackDiesel * 0.1
 
-				gasPrice := (st / 42.0) + (cGas / 42.0) + TaxG + DistG
-				diesPrice := (st / 42.0) + (cDies / 42.0) + TaxD + DistD
+				gasPrice := (st / 42.0) + cGas + TaxG + DistG
+				diesPrice := (st / 42.0) + cDies + TaxD + DistD
 
 				gasPath[t] = strconv.FormatFloat(gasPrice, 'f', 2, 64)
 				diesPath[t] = strconv.FormatFloat(diesPrice, 'f', 2, 64)

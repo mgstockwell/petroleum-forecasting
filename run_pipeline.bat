@@ -17,7 +17,6 @@ python report_gen.py
 if errorlevel 1 goto :fail
 
 echo Pipeline complete.
-pause
 exit /b 0
 
 :fail

@@ -7,6 +7,7 @@ venv/
 # Go
 simulate
 simulate.exe
+root/pkg/mod/
 
 # Data & Output
 params.json
