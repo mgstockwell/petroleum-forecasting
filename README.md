@@ -67,6 +67,36 @@ The default model uses 252 days of calibration data, a 180-day forecast
 horizon, and 10,000 simulation paths. Calibration must run before simulation
 because `simulate.go` requires the generated `params.json` file.
 
+## Understanding the Crack Spread
+
+A crack spread is the difference between the price of crude oil and the value
+of the refined products produced from it, mainly gasoline and diesel. In
+practical terms, it measures refinery margin: a refinery buys crude, refines it,
+then sells gasoline and diesel to the market. If the refined product prices do
+not rise enough to offset crude costs and processing costs, refinery margins
+compress and the crack spread narrows.
+
+The model in this project captures that relationship by calibrating:
+
+- crude price volatility,
+- jump risk (sudden large price moves),
+- the current gasoline crack spread,
+- the current diesel crack spread,
+- and the volatility of each spread.
+
+That matters because a forecast can say fuel prices are likely to decline even
+when consumers are seeing high prices today. This is not a contradiction. The
+model is forecasting the likely path of future prices and spreads over the next
+180 days, not making a prediction that current retail pain disappears
+immediately. A short-term market environment may still feel expensive because of
+near-term supply shocks, demand seasonality, or local station pricing, while the
+medium-term model can still show the most likely path leaning lower.
+
+In other words, the model is not saying "no one is right." It is saying that,
+under the current assumptions, the combined crude + refining margin + product
+spread relationship points to a likely softer medium-term path for retail fuel
+prices, with a still-present risk of sharp upside shocks.
+
 ## Outputs
 
 After a successful run, the repository contains:
