@@ -106,7 +106,8 @@ supply assumption.
 
 - `saudi_prod`: the baseline Saudi production level.
 - `saudi_cap`: maximum Saudi spare capacity; Saudi Arabia acts like a balancing
-  producer and can dampen price spikes when it brings more volume online.
+  producer, adding output as price rises above its ~$80 target (dampening
+  spikes) and pulling back as price falls below it.
 - `russia_prod`: current Russian output baseline.
 - `russia_decay`: negative drift representing aging wells, sanctions exposure,
   and infrastructure decline.
@@ -114,22 +115,31 @@ supply assumption.
   simulation's production dynamics — currently informational only.)
 - `iran_cap`: a cap for Iranian supply.
 - `iran_prod`: baseline Iranian production. Iran is modeled as
-  sanctions-constrained: output drifts slowly toward `iran_cap` and barely
-  responds to price, unlike a true swing producer.
+  sanctions-constrained and barely responds to price, unlike a true swing
+  producer.
+- `iran_drift_rate`: how fast Iranian output drifts toward `iran_cap`,
+  independent of price. Defaults to `0.0` in the base case (output holds flat
+  under current sanctions); a scenario representing sanctions relief sets
+  this above zero so output actually ramps toward the new cap over the
+  forecast horizon.
 - `us_prod` / `us_cap`: baseline and maximum US (shale) production. US output
-  behaves like a price-responsive swing producer, but ramps up *above* a
-  breakeven price and cuts back below it — the opposite response direction
-  from Saudi Arabia — and is bounded by a higher marginal-cost floor that
-  reflects existing wells that aren't easily shut in.
+  behaves like a price-responsive swing producer, ramping up *above* a
+  breakeven price and cutting back below it — the same stabilizing direction
+  as Saudi Arabia, just around a lower ($65) breakeven — and is bounded by a
+  higher marginal-cost floor that reflects existing wells that aren't easily
+  shut in.
 - `other_prod` / `other_cap`: an aggregated "rest of world" production
   baseline and ceiling covering all other producing countries, modeled as a
-  slow-moving aggregate with mild price elasticity.
+  slow-moving aggregate with the same stabilizing price response as Saudi,
+  around a ~$75 target.
 
 These variables determine how much oil is physically available to the market.
-The model assumes that the main producers are not interchangeable: Saudi output
-acts like a stabilizer, Russia is assumed to decline over time, US shale flexes
-with the price cycle, Iran remains sanctioned and largely flat, and the rest of
-the world contributes a slow-moving aggregate baseline.
+The model assumes that the main producers are not interchangeable: Saudi,
+US shale, and the "rest of world" aggregate all act as stabilizers that add
+supply when price is high and withdraw it when price is low (each around a
+different target/breakeven price), Russia is assumed to decline over time,
+and Iran remains sanctioned and flat unless a scenario explicitly models
+relief.
 
 ### 3. Seasonality and refining yields (`day_of_year`, `crack_gas_0`,
 `crack_diesel_0`, `sigma_crack_gas`, `sigma_crack_diesel`)
@@ -179,19 +189,26 @@ shipping costs can raise delivered retail prices even when the crude
 component is stable.
 
 ### 5. SPR intervention logic (`spr_trigger_price`, `spr_floor_price`,
-`spr_max_draw_mbpd`)
+`spr_max_draw_mbpd`, `spr_level_mbbl`, `spr_capacity_mbbl`)
 
-The Strategic Petroleum Reserve is modeled as a policy lever rather than an
-abstract damping term.
+The Strategic Petroleum Reserve is modeled as a policy lever with a persistent,
+depletable stock, not just an abstract damping term.
 
 - `spr_trigger_price`: the crude price threshold at which the U.S. may release
   reserves.
 - `spr_floor_price`: the lower price floor below which the U.S. may restock.
 - `spr_max_draw_mbpd`: the maximum release rate, in million barrels per day.
+- `spr_level_mbbl`: the current reserve level, in million barrels. This is a
+  manual estimate (not pulled live) that should be refreshed periodically from
+  EIA/DOE reporting.
+- `spr_capacity_mbbl`: the maximum reserve capacity, used to cap restocking.
 
-When crude prices spike above a trigger threshold, the model can simulate SPR
-release and add supply back to the market. When prices fall below a floor,
-restocking can become a mild drain on supply.
+When crude prices spike above the trigger threshold, the model releases
+reserves at up to `spr_max_draw_mbpd`, but never more than what remains in
+`spr_level_mbbl` — a reserve that starts low can only prop up price for so
+long before it runs out of barrels to draw on. When prices fall below the
+floor, restocking becomes a mild drain on supply and rebuilds the level, up to
+`spr_capacity_mbbl`.
 
 ### 6. Interaction between variables
 
