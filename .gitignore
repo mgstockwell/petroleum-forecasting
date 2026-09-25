@@ -18,6 +18,8 @@ results_macro_gas.csv
 results_macro_diesel.csv
 *_forecast.pdf
 *_forecast.png
+!gasoline_forecast.png
+!diesel_forecast.png
 .vscode/
 
 .vscode/
