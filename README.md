@@ -17,6 +17,12 @@ simulations, and generates forecast charts for retail gasoline and diesel.
   title.
 - `run_pipeline.bat` runs calibration, builds and runs the Go simulation, and
   generates both charts. It stops if any step fails.
+- `scenario_report.py` runs the simulator once per what-if scenario (Hormuz
+  closure, Saudi production cut, Iran sanctions lifted, etc.), then writes a
+  Bloomberg-style markdown report (`oil_market_outlook.md`) with scenario
+  comparison charts and tables. Run it after `calibrate.py`; it restores
+  `params_macro.json` and the standard result CSVs to the base case when it
+  finishes, so it does not disturb the normal pipeline outputs.
 - `.gitignore` excludes generated data outputs, the local virtual environment,
   and copied workspace artifacts.
 
@@ -226,6 +232,26 @@ After a successful run, the repository contains:
 
 These generated files are ignored by Git. Keep them locally or publish them to
 the reporting location used by your operations process.
+
+### Scenario / What-If Report
+
+Running `python scenario_report.py` (after `calibrate.py`) produces a
+Bloomberg-analyst-style outlook covering the base case plus six stress
+scenarios — Hormuz closure, Hormuz de-risking, a 20% Saudi production cut,
+Iran sanctions being lifted, a US shale surge, and a combined Hormuz+Saudi
+tail-risk case:
+
+- `oil_market_outlook.md`: the written report, with summary tables, a
+  per-scenario breakdown, and a methodology section describing the
+  elasticity assumption used to size production shocks.
+- `scenario_gasoline_paths.png` / `scenario_diesel_paths.png`: median price
+  paths per scenario over the base case's percentile bands.
+- `scenario_day180_ranking.png`: a day-180 median price ranking across
+  scenarios.
+
+These three chart files and the report are tracked in Git (unlike the daily
+pipeline outputs above) since they represent a point-in-time analysis rather
+than a disposable daily run.
 
 ## Deployment
 
