@@ -15,8 +15,9 @@ simulations, and generates forecast charts for retail gasoline and diesel.
 - `report_gen.py` reads the simulation CSVs and creates percentile-band charts:
   `gasoline_forecast.png` and `diesel_forecast.png` with the date stamped in the
   title.
-- `run_pipeline.bat` runs calibration, builds and runs the Go simulation, and
-  generates both charts. It stops if any step fails.
+- `run_pipeline.bat` runs calibration, builds and runs the Go simulation,
+  generates both charts, and refreshes the scenario what-if report. It stops
+  if any step fails.
 - `scenario_report.py` runs the simulator once per what-if scenario (Hormuz
   closure, Saudi production cut, Iran sanctions lifted, etc.), then writes a
   Bloomberg-style markdown report (`oil_market_outlook.md`) with scenario
@@ -67,6 +68,7 @@ python calibrate.py
 go build simulate.go
 simulate.exe
 python report_gen.py
+python scenario_report.py
 ```
 
 The default model uses 252 days of calibration data, a 180-day forecast
@@ -235,7 +237,8 @@ the reporting location used by your operations process.
 
 ### Scenario / What-If Report
 
-Running `python scenario_report.py` (after `calibrate.py`) produces a
+`python scenario_report.py` (already included as step 4 of
+`run_pipeline.bat`, and runnable on its own after `calibrate.py`) produces a
 Bloomberg-analyst-style outlook covering the base case plus six stress
 scenarios — Hormuz closure, Hormuz de-risking, a 20% Saudi production cut,
 Iran sanctions being lifted, a US shale surge, and a combined Hormuz+Saudi
