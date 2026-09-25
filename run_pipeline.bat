@@ -20,8 +20,8 @@ echo [4/5] Generating scenario what-if report...
 python scenario_report.py
 if errorlevel 1 goto :fail
 
-echo [5/5] Publishing report to GitHub...
-git add oil_market_outlook.md scenario_gasoline_paths.png scenario_diesel_paths.png scenario_day180_ranking.png
+echo [5/5] Publishing report and charts to GitHub...
+git add oil_market_outlook.md gasoline_forecast.png diesel_forecast.png scenario_gasoline_paths.png scenario_diesel_paths.png scenario_day180_ranking.png
 if errorlevel 1 goto :fail
 git diff --cached --quiet
 if not errorlevel 1 (

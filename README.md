@@ -17,8 +17,9 @@ simulations, and generates forecast charts for retail gasoline and diesel.
   `gasoline_forecast.png` and `diesel_forecast.png` with the date stamped in the
   title.
 - `run_pipeline.bat` runs calibration, builds and runs the Go simulation,
-  generates both charts, and refreshes the scenario what-if report. It stops
-  if any step fails.
+  generates both charts, and refreshes the scenario what-if report. It publishes
+  the report, forecast charts, and scenario charts to `main`, and stops if any
+  step fails.
 - `scenario_report.py` runs the simulator once per what-if scenario (Hormuz
   closure, Saudi production cut, Iran sanctions lifted, etc.), then writes a
   Bloomberg-style markdown report (`oil_market_outlook.md`) with scenario
