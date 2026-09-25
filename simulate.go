@@ -33,16 +33,26 @@ type MacroParams struct {
 	SaudiCap         float64 `json:"saudi_cap"`
 	RussiaProd       float64 `json:"russia_prod"`
 	RussiaDecay      float64 `json:"russia_decay"`
+	IranProd         float64 `json:"iran_prod"`
+	IranCap          float64 `json:"iran_cap"`
+	UsProd           float64 `json:"us_prod"`
+	UsCap            float64 `json:"us_cap"`
+	OtherProd        float64 `json:"other_prod"`
+	OtherCap         float64 `json:"other_cap"`
+	HormuzRate       float64 `json:"hormuz_rate"`
+	BabRate          float64 `json:"bab_rate"`
+	ShippingCost0    float64 `json:"shipping_cost_0"`
 }
 
 const (
-	Days  = 180
-	Sims  = 10000
-	Dt    = 1.0 / 365.0
-	TaxG  = 0.57
-	DistG = 0.65
-	TaxD  = 0.65
-	DistD = 0.85
+	Days             = 180
+	Sims             = 10000
+	Dt               = 1.0 / 365.0
+	TaxG             = 0.57
+	DistG            = 0.65
+	TaxD             = 0.65
+	DistD            = 0.85
+	ChokeRefRateMbpd = 20.0 // Hormuz baseline; disruption severity scales relative to this
 )
 
 func main() {
@@ -91,8 +101,12 @@ func runSimulation(p MacroParams) {
 			cGas := p.CrackGas0
 			cDies := p.CrackDiesel0
 			freight := p.Freight0
+			shippingCost := p.ShippingCost0
 			saudiQ := p.SaudiProd
 			russiaQ := p.RussiaProd
+			usQ := p.UsProd
+			iranQ := p.IranProd
+			otherQ := p.OtherProd
 
 			gasPath := make([]string, Days)
 			dieselPath := make([]string, Days)
@@ -107,6 +121,30 @@ func runSimulation(p MacroParams) {
 					saudiQ = 7.0
 				}
 
+				usQ += 0.06 * (st - 65.0) * Dt // shale ramps above breakeven, unlike Saudi's inverse response
+				if usQ > p.UsCap {
+					usQ = p.UsCap
+				}
+				if usQ < 11.0 { // higher marginal-cost floor than Saudi spare capacity
+					usQ = 11.0
+				}
+
+				iranQ += 0.01 * (p.IranCap - iranQ) * Dt // sanctions: slow drift to cap, no price response
+				if iranQ > p.IranCap {
+					iranQ = p.IranCap
+				}
+				if iranQ < 2.5 {
+					iranQ = 2.5
+				}
+
+				otherQ += 0.02 * (75.0 - st) * Dt
+				if otherQ > p.OtherCap {
+					otherQ = p.OtherCap
+				}
+				if otherQ < 0.9*p.OtherProd {
+					otherQ = 0.9 * p.OtherProd
+				}
+
 				sprFlow := 0.0
 				if st > p.SprTrigger {
 					sprFlow = p.SprMaxDraw
@@ -115,10 +153,25 @@ func runSimulation(p MacroParams) {
 				}
 
 				freightJump := 0.0
+				shippingJump := 0.0
+				supplyShock := 0.0
 				if rand.Float64() < (p.ChokepointLambda * Dt) {
-					freightJump = math.Abs(rand.NormFloat64()*2.0 + p.ChokepointJumpMu)
+					severity := 1.0
+					totalChoke := p.HormuzRate + p.BabRate
+					if totalChoke > 0 {
+						chokeRate := p.BabRate
+						if rand.Float64() < p.HormuzRate/totalChoke {
+							chokeRate = p.HormuzRate
+						}
+						severity = chokeRate / ChokeRefRateMbpd
+					}
+					baseJump := math.Abs(rand.NormFloat64()*2.0 + p.ChokepointJumpMu)
+					freightJump = baseJump * severity
+					shippingJump = baseJump * severity * 0.5
+					supplyShock = 0.05 * severity * ChokeRefRateMbpd
 				}
 				freight += 5.0*(p.Freight0-freight)*Dt + freightJump
+				shippingCost += 8.0*(p.ShippingCost0-shippingCost)*Dt + shippingJump
 
 				currentDay := float64((p.DayOfYear + t) % 365)
 				seasonalGas := 5.0 * math.Sin((2.0*math.Pi/365.0)*currentDay-1.5)
@@ -126,14 +179,15 @@ func runSimulation(p MacroParams) {
 				cGas += seasonalGas*Dt + rand.NormFloat64()*1.2
 				cDies += seasonalDiesel*Dt + rand.NormFloat64()*1.0
 
-				supplyImbalance := (saudiQ + russiaQ + sprFlow) - (p.SaudiProd + p.RussiaProd)
+				supplyImbalance := (saudiQ + russiaQ + usQ + iranQ + otherQ + sprFlow - supplyShock) -
+					(p.SaudiProd + p.RussiaProd + p.UsProd + p.IranProd + p.OtherProd)
 				mu := -0.1 * supplyImbalance
 				dS := mu*st*Dt + p.SigmaCrude*st*math.Sqrt(Dt)*rand.NormFloat64()
 				st += dS
 				st = math.Max(st, 0.01)
 
-				gasPrice := (st / 42.0) + (cGas / 42.0) + (freight / 42.0) + TaxG + DistG
-				dieselPrice := (st / 42.0) + (cDies / 42.0) + (freight / 42.0) + TaxD + DistD
+				gasPrice := (st / 42.0) + (cGas / 42.0) + (freight / 42.0) + (shippingCost / 42.0) + TaxG + DistG
+				dieselPrice := (st / 42.0) + (cDies / 42.0) + (freight / 42.0) + (shippingCost / 42.0) + TaxD + DistD
 				gasPath[t] = strconv.FormatFloat(gasPrice, 'f', 2, 64)
 				dieselPath[t] = strconv.FormatFloat(dieselPrice, 'f', 2, 64)
 			}

@@ -41,6 +41,11 @@ def calibrate_daily_parameters(lookback_days=252):
         "russia_decay": 0.02,
         "venezuela_cap": 1.15,
         "iran_cap": 3.4,
+        "iran_prod": 3.3,
+        "us_prod": 13.2,
+        "us_cap": 13.8,
+        "other_prod": 67.25,
+        "other_cap": 69.0,
     }
 
     base_freight_bbl = 2.50
@@ -58,6 +63,9 @@ def calibrate_daily_parameters(lookback_days=252):
         "freight_0": float(base_freight_bbl),
         "chokepoint_lambda": 1.5,
         "chokepoint_jump_mu": 5.0,
+        "hormuz_rate": 20.0,
+        "bab_rate": 9.0,
+        "shipping_cost_0": 0.15,
         "spr_trigger_price": 95.00,
         "spr_floor_price": 70.00,
         "spr_max_draw_mbpd": 1.0,

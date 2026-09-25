@@ -86,7 +86,8 @@ answer: "How expensive is crude today, how quickly can it move, and how often
 should we expect surprise jumps?"
 
 ### 2. Sovereign production and supply dynamics (`saudi_prod`, `saudi_cap`,
-`russia_prod`, `russia_decay`, `venezuela_cap`, `iran_cap`)
+`russia_prod`, `russia_decay`, `venezuela_cap`, `iran_cap`, `iran_prod`,
+`us_prod`, `us_cap`, `other_prod`, `other_cap`)
 
 The model treats supply as a constrained system instead of a perfect infinite
 supply assumption.
@@ -97,13 +98,26 @@ supply assumption.
 - `russia_prod`: current Russian output baseline.
 - `russia_decay`: negative drift representing aging wells, sanctions exposure,
   and infrastructure decline.
-- `venezuela_cap`: an export ceiling for Venezuela.
+- `venezuela_cap`: an export ceiling for Venezuela. (Not yet wired into the
+  simulation's production dynamics — currently informational only.)
 - `iran_cap`: a cap for Iranian supply.
+- `iran_prod`: baseline Iranian production. Iran is modeled as
+  sanctions-constrained: output drifts slowly toward `iran_cap` and barely
+  responds to price, unlike a true swing producer.
+- `us_prod` / `us_cap`: baseline and maximum US (shale) production. US output
+  behaves like a price-responsive swing producer, but ramps up *above* a
+  breakeven price and cuts back below it — the opposite response direction
+  from Saudi Arabia — and is bounded by a higher marginal-cost floor that
+  reflects existing wells that aren't easily shut in.
+- `other_prod` / `other_cap`: an aggregated "rest of world" production
+  baseline and ceiling covering all other producing countries, modeled as a
+  slow-moving aggregate with mild price elasticity.
 
 These variables determine how much oil is physically available to the market.
 The model assumes that the main producers are not interchangeable: Saudi output
-acts like a stabilizer, while Russia is assumed to decline over time and
-sanctioned producers remain volume-constrained.
+acts like a stabilizer, Russia is assumed to decline over time, US shale flexes
+with the price cycle, Iran remains sanctioned and largely flat, and the rest of
+the world contributes a slow-moving aggregate baseline.
 
 ### 3. Seasonality and refining yields (`day_of_year`, `crack_gas_0`,
 `crack_diesel_0`, `sigma_crack_gas`, `sigma_crack_diesel`)
@@ -123,7 +137,8 @@ shift diesel cracks. In the Go model, this is represented as a sinusoidal
 seasonal component layered onto the baseline crack spread.
 
 ### 4. Freight and maritime chokepoint risk (`freight_0`,
-`chokepoint_lambda`, `chokepoint_jump_mu`)
+`chokepoint_lambda`, `chokepoint_jump_mu`, `hormuz_rate`, `bab_rate`,
+`shipping_cost_0`)
 
 The model separates shipping cost from the commodity itself because the freight
 bill is driven by geopolitical risk rather than crude value alone.
@@ -133,11 +148,23 @@ bill is driven by geopolitical risk rather than crude value alone.
   expected.
 - `chokepoint_jump_mu`: the average extra freight cost added when shipping risk
   spikes.
+- `hormuz_rate` / `bab_rate`: the daily oil volume (million barrels per day)
+  that normally transits the Strait of Hormuz and Bab el-Mandeb. When a
+  disruption event fires, the model picks a strait weighted by relative
+  traffic and scales the *severity* of that event — the freight jump, the
+  shipping cost jump, and a temporary supply shock all get bigger the busier
+  the affected strait normally is.
+- `shipping_cost_0`: the baseline war-risk/insurance premium in dollars per
+  barrel. Unlike `freight_0`, which represents the physical tanker charter
+  cost, `shipping_cost` represents insurance and war-risk surcharges layered
+  on top of freight, and it reverts to baseline faster once a disruption
+  passes.
 
 A war risk premium or disruption around the Strait of Hormuz or Bab
-el-Mandeb can cause a sharp jump in freight costs even if crude itself does not
-move dramatically. This matters because higher freight can raise delivered retail
-prices even when the crude component is stable.
+el-Mandeb can cause a sharp jump in freight and insurance costs even if crude
+itself does not move dramatically. This matters because higher freight and
+shipping costs can raise delivered retail prices even when the crude
+component is stable.
 
 ### 5. SPR intervention logic (`spr_trigger_price`, `spr_floor_price`,
 `spr_max_draw_mbpd`)
@@ -159,18 +186,22 @@ restocking can become a mild drain on supply.
 The model works by coupling the drivers like this:
 
 1. Crude price is driven by stochastic volatility and jump risk.
-2. Sovereign production determines physical supply availability and whether the
-   market is tight or loose.
-3. Freight and chokepoint risk change delivery costs and add market stress.
+2. Sovereign production (Saudi, Russia, US shale, Iran, and the rest-of-world
+   aggregate) determines physical supply availability and whether the market
+   is tight or loose.
+3. Freight and chokepoint risk change delivery costs and add market stress;
+   the shipping insurance premium adds a second, faster-reverting cost spike
+   on top of freight, both scaled by chokepoint throughput.
 4. Seasonal crack spreads modify refinery margins and therefore retail fuel
    prices.
 5. SPR intervention acts as a policy shock that dampens or amplifies the crude
    price path depending on the price regime.
 
 The final pump price is not just the commodity price. It is the crude price path,
-plus refining margin, plus freight, plus taxes and distribution costs:
+plus refining margin, plus freight, plus the shipping insurance premium, plus
+taxes and distribution costs:
 
-`P_t = (S_t + C_t + F_t) / 42 + D_t + T_t`
+`P_t = (S_t + C_t + F_t + I_t) / 42 + D_t + T_t`
 
 That is why a forecast can show lower fuel prices even when local gasoline at the
 pump feels expensive today: the forecast is modeling the medium-term path of the
