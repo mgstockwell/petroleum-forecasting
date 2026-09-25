@@ -29,12 +29,15 @@ type MacroParams struct {
 	SprTrigger       float64 `json:"spr_trigger_price"`
 	SprFloor         float64 `json:"spr_floor_price"`
 	SprMaxDraw       float64 `json:"spr_max_draw_mbpd"`
+	SprLevelMbbl     float64 `json:"spr_level_mbbl"`
+	SprCapacityMbbl  float64 `json:"spr_capacity_mbbl"`
 	SaudiProd        float64 `json:"saudi_prod"`
 	SaudiCap         float64 `json:"saudi_cap"`
 	RussiaProd       float64 `json:"russia_prod"`
 	RussiaDecay      float64 `json:"russia_decay"`
 	IranProd         float64 `json:"iran_prod"`
 	IranCap          float64 `json:"iran_cap"`
+	IranDriftRate    float64 `json:"iran_drift_rate"`
 	UsProd           float64 `json:"us_prod"`
 	UsCap            float64 `json:"us_cap"`
 	OtherProd        float64 `json:"other_prod"`
@@ -113,13 +116,14 @@ func runSimulation(p MacroParams) {
 			usQ := p.UsProd
 			iranQ := p.IranProd
 			otherQ := p.OtherProd
+			sprLevel := p.SprLevelMbbl
 
 			gasPath := make([]string, Days)
 			dieselPath := make([]string, Days)
 
 			for t := 0; t < Days; t++ {
 				russiaQ -= russiaQ * p.RussiaDecay * Dt
-				saudiQ += 0.05 * (80.0 - st) * Dt
+				saudiQ += 0.05 * (st - 80.0) * Dt // swing producer: brings on more supply as price rises above its target, dampening spikes
 				if saudiQ > p.SaudiCap {
 					saudiQ = p.SaudiCap
 				}
@@ -127,7 +131,7 @@ func runSimulation(p MacroParams) {
 					saudiQ = 7.0
 				}
 
-				usQ += 0.06 * (st - 65.0) * Dt // shale ramps above breakeven, unlike Saudi's inverse response
+				usQ += 0.06 * (st - 65.0) * Dt // shale ramps above breakeven, same direction as Saudi's stabilizing response
 				if usQ > p.UsCap {
 					usQ = p.UsCap
 				}
@@ -135,7 +139,7 @@ func runSimulation(p MacroParams) {
 					usQ = 11.0
 				}
 
-				iranQ += 0.01 * (p.IranCap - iranQ) * Dt // sanctions: slow drift to cap, no price response
+				iranQ += p.IranDriftRate * (p.IranCap - iranQ) * Dt // sanctions: drift to cap only if a scenario sets a nonzero rate; base case holds flat
 				if iranQ > p.IranCap {
 					iranQ = p.IranCap
 				}
@@ -143,7 +147,7 @@ func runSimulation(p MacroParams) {
 					iranQ = 2.5
 				}
 
-				otherQ += 0.02 * (75.0 - st) * Dt
+				otherQ += 0.02 * (st - 75.0) * Dt // same stabilizing direction as Saudi
 				if otherQ > p.OtherCap {
 					otherQ = p.OtherCap
 				}
@@ -152,10 +156,17 @@ func runSimulation(p MacroParams) {
 				}
 
 				sprFlow := 0.0
-				if st > p.SprTrigger {
-					sprFlow = p.SprMaxDraw
+				if st > p.SprTrigger && sprLevel > 0 {
+					sprFlow = math.Min(p.SprMaxDraw, sprLevel) // can't release more than remains in the reserve
 				} else if st < p.SprFloor {
 					sprFlow = -0.1
+				}
+				sprLevel -= sprFlow
+				if sprLevel < 0 {
+					sprLevel = 0
+				}
+				if p.SprCapacityMbbl > 0 && sprLevel > p.SprCapacityMbbl {
+					sprLevel = p.SprCapacityMbbl
 				}
 
 				freightJump := 0.0

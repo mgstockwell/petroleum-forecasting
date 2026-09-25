@@ -42,6 +42,7 @@ def calibrate_daily_parameters(lookback_days=252):
         "venezuela_cap": 1.15,
         "iran_cap": 3.4,
         "iran_prod": 3.3,
+        "iran_drift_rate": 0.0,
         "us_prod": 13.2,
         "us_cap": 13.8,
         "other_prod": 67.25,
@@ -70,6 +71,10 @@ def calibrate_daily_parameters(lookback_days=252):
         "spr_trigger_price": 95.00,
         "spr_floor_price": 70.00,
         "spr_max_draw_mbpd": 1.0,
+        # Manual estimates of the actual SPR level/capacity (million barrels) -
+        # not pulled live, update periodically from EIA/DOE reporting.
+        "spr_level_mbbl": 405.0,
+        "spr_capacity_mbbl": 714.0,
         "date_calibrated": datetime.now().strftime("%Y-%m-%d"),
         **sovereign_state,
     }

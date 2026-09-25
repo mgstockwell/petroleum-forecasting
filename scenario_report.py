@@ -112,6 +112,9 @@ def build_scenarios(base):
     iran_lifted_overrides, iran_lifted_shock = shocked(iran_lifted_delta, {
         "iran_prod": base["iran_prod"] * 1.7,
         "iran_cap": base["iran_cap"] * 1.8,
+        # Base case holds Iran flat (iran_drift_rate=0); relief lets output
+        # actually ramp toward the new, higher cap over the 180-day horizon.
+        "iran_drift_rate": 1.0,
     })
     us_surge_overrides, us_surge_shock = shocked(us_surge_delta, {
         "us_prod": base["us_prod"] * 1.08,
