@@ -24,7 +24,11 @@ simulations, and generates forecast charts for retail gasoline and diesel.
   Bloomberg-style markdown report (`oil_market_outlook.md`) with scenario
   comparison charts and tables. Run it after `calibrate.py`; it restores
   `params_macro.json` and the standard result CSVs to the base case when it
-  finishes, so it does not disturb the normal pipeline outputs.
+  finishes, so it does not disturb the normal pipeline outputs. It also reads
+  the current national average regular and diesel prices from AAA's public
+  gas-prices page and shows them as a dated snapshot in the report. If AAA is
+  unavailable or its table changes, report generation fails instead of
+  publishing missing or stale retail prices.
 - `.gitignore` excludes generated data outputs, the local virtual environment,
   and copied workspace artifacts.
 
@@ -33,7 +37,8 @@ simulations, and generates forecast charts for retail gasoline and diesel.
 - Windows (the included deployment script is a batch file)
 - Python 3.10 or newer
 - Go 1.20 or newer
-- Internet access when calibration runs, so `yfinance` can fetch NYMEX data
+- Internet access when calibration and report generation run, so `yfinance`
+  can fetch NYMEX data and the report can read AAA's public gas-prices page
 
 Install the Python dependencies in a virtual environment:
 
@@ -41,7 +46,7 @@ Install the Python dependencies in a virtual environment:
 py -3 -m venv .venv
 .\\.venv\\Scripts\\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install numpy pandas matplotlib yfinance
+python -m pip install numpy pandas matplotlib yfinance requests beautifulsoup4
 ```
 
 If PowerShell blocks activation, run the commands from Command Prompt instead:
@@ -50,7 +55,7 @@ If PowerShell blocks activation, run the commands from Command Prompt instead:
 py -3 -m venv .venv
 .venv\\Scripts\\activate.bat
 python -m pip install --upgrade pip
-python -m pip install numpy pandas matplotlib yfinance
+python -m pip install numpy pandas matplotlib yfinance requests beautifulsoup4
 ```
 
 ## Run Locally

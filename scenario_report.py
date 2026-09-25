@@ -17,6 +17,8 @@ from datetime import date
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 
 PARAMS_FILE = "params_macro.json"
 SIM_BINARY = "simulate.exe"
@@ -47,6 +49,24 @@ GRID = "#e1e0d9"
 DEFAULT_SIMS = 2000
 
 AAA_GAS_PRICES_URL = "https://gasprices.aaa.com/"
+
+
+def fetch_aaa_prices():
+    response = requests.get(AAA_GAS_PRICES_URL, timeout=20)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+    for table in soup.select("table"):
+        headers = [cell.get_text(" ", strip=True) for cell in table.select("thead th")]
+        if "Regular" not in headers or "Diesel" not in headers:
+            continue
+        for row in table.select("tbody tr"):
+            cells = [cell.get_text(" ", strip=True) for cell in row.select("td")]
+            if cells and cells[0] == "Current Avg.":
+                return {
+                    fuel: float(cells[headers.index(fuel)].replace("$", ""))
+                    for fuel in ("Regular", "Diesel")
+                }
+    raise ValueError("AAA current national regular/diesel prices not found")
 
 
 def load_base_params():
@@ -293,7 +313,7 @@ def build_summary_rows(scenarios, gas_bands_by_id, diesel_bands_by_id):
     return rows
 
 
-def render_report(scenarios, summary_rows, as_of, base):
+def render_report(scenarios, summary_rows, as_of, base, aaa_prices):
     sims = base.get("sims") or DEFAULT_SIMS
     calibrated_date = base.get("date_calibrated") or "unknown"
     base_row = next(r for r in summary_rows if r["id"] == "base")
@@ -308,8 +328,11 @@ def render_report(scenarios, summary_rows, as_of, base):
     lines.append(f"# Oil & Fuels Market Outlook - Scenario Analysis")
     lines.append(f"*As of {as_of} | {sims:,}-path Monte Carlo, 180-day horizon*\n")
     lines.append(
-        f"**Compare against today's actual retail price:** "
-        f"[AAA National Average Gas Prices]({AAA_GAS_PRICES_URL}). This model "
+        f"**AAA national average retail prices ({as_of}):** "
+        f"Regular **${aaa_prices['Regular']:.3f}/gal**, "
+        f"diesel **${aaa_prices['Diesel']:.3f}/gal** "
+        f"([AAA Gas Prices]({AAA_GAS_PRICES_URL})). These are a snapshot from "
+        f"the last report run, not live prices. This model "
         f"projects a *medium-term path* for the crude-to-pump price chain, not "
         f"today's station price, so some gap is expected — but if the gap looks "
         f"large, check the \"Calibration inputs\" line under Methodology first: "
@@ -395,6 +418,7 @@ def render_report(scenarios, summary_rows, as_of, base):
 def main():
     ensure_simulator_built()
     base, original_text = load_base_params()
+    aaa_prices = fetch_aaa_prices()
     scenarios = build_scenarios(base)
 
     gas_bands_by_id = {}
@@ -430,7 +454,7 @@ def main():
     plot_scenario_paths(scenarios, diesel_bands_by_id, "Diesel", "scenario_diesel_paths.png")
     summary_rows = build_summary_rows(scenarios, gas_bands_by_id, diesel_bands_by_id)
     plot_day180_ranking(scenarios, summary_rows, "scenario_day180_ranking.png")
-    render_report(scenarios, summary_rows, as_of, base)
+    render_report(scenarios, summary_rows, as_of, base, aaa_prices)
 
 
 if __name__ == "__main__":
