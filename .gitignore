@@ -7,14 +7,18 @@ venv/
 # Go
 simulate
 simulate.exe
-root/pkg/mod/
+root/
 
 # Data & Output
 params.json
+params_macro.json
 results_gas.csv
 results_diesel.csv
+results_macro_gas.csv
+results_macro_diesel.csv
 *_forecast.pdf
 *_forecast.png
+.vscode/
 
 .vscode/
 root/

@@ -1,3 +1,4 @@
+import os
 from datetime import date
 
 import matplotlib.pyplot as plt
@@ -35,5 +36,7 @@ def generate_chart(commodity, filename, color_base):
 
 
 if __name__ == "__main__":
-    generate_chart("Gasoline", "results_gas.csv", "blue")
-    generate_chart("Diesel", "results_diesel.csv", "red")
+    gas_file = "results_macro_gas.csv" if os.path.exists("results_macro_gas.csv") else "results_gas.csv"
+    diesel_file = "results_macro_diesel.csv" if os.path.exists("results_macro_diesel.csv") else "results_diesel.csv"
+    generate_chart("Gasoline", gas_file, "blue")
+    generate_chart("Diesel", diesel_file, "red")

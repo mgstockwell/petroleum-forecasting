@@ -6,19 +6,19 @@ simulations, and generates forecast charts for retail gasoline and diesel.
 
 ## Files
 
-- `calibrate.py` downloads daily crude oil (`CL=F`), gasoline (`RB=F`), and
-  heating oil (`HO=F`) futures data with `yfinance`. It estimates volatility,
-  crude jump behavior, and crack spreads, then writes the current model inputs
-  to `params.json`.
-- `simulate.go` reads `params.json` and runs 10,000 parallel 180-day price
-  paths. It writes the simulated retail prices to `results_gas.csv` and
-  `results_diesel.csv`.
+- `calibrate.py` downloads crude, gasoline, and diesel futures data with
+  `yfinance`, estimates volatility and crack spread levels, and writes the
+  model inputs to `params.json` and `params_macro.json`.
+- `simulate.go` reads those calibrations and simulates 10,000 180-day fuel paths.
+  It now includes sovereign production behavior, SPR intervention logic,
+  chokepoint freight risk, and seasonal refinery margin effects.
 - `report_gen.py` reads the simulation CSVs and creates percentile-band charts:
-  `gasoline_forecast.png` and `diesel_forecast.png`.
+  `gasoline_forecast.png` and `diesel_forecast.png` with the date stamped in the
+  title.
 - `run_pipeline.bat` runs calibration, builds and runs the Go simulation, and
   generates both charts. It stops if any step fails.
-- `root/` contains the Go workspace/module cache used by the local
-  environment. It is not required as an application entry point.
+- `.gitignore` excludes generated data outputs, the local virtual environment,
+  and copied workspace artifacts.
 
 ## Requirements
 
@@ -67,45 +67,131 @@ The default model uses 252 days of calibration data, a 180-day forecast
 horizon, and 10,000 simulation paths. Calibration must run before simulation
 because `simulate.go` requires the generated `params.json` file.
 
-## Understanding the Crack Spread
+## Model Logic: How the Variables Interact
 
-A crack spread is the difference between the price of crude oil and the value
-of the refined products produced from it, mainly gasoline and diesel. In
-practical terms, it measures refinery margin: a refinery buys crude, refines it,
-then sells gasoline and diesel to the market. If the refined product prices do
-not rise enough to offset crude costs and processing costs, refinery margins
-compress and the crack spread narrows.
+This project is no longer a single jump-diffusion crude model. It is a coupled
+system of stochastic equations that separates raw commodity pricing from the
+real-world constraints that affect retail fuel costs.
 
-The model in this project captures that relationship by calibrating:
+### 1. Crude price component (`s0`, `sigma_crude`, `jump_lambda`, `jump_mu`)
 
-- crude price volatility,
-- jump risk (sudden large price moves),
-- the current gasoline crack spread,
-- the current diesel crack spread,
-- and the volatility of each spread.
+- `s0`: the current crude price baseline.
+- `sigma_crude`: the volatility of crude returns used in the stochastic price
+  driver.
+- `jump_lambda`: the expected frequency of large unexpected crude shocks.
+- `jump_mu`: the average magnitude of those shocks.
 
-That matters because a forecast can say fuel prices are likely to decline even
-when consumers are seeing high prices today. This is not a contradiction. The
-model is forecasting the likely path of future prices and spreads over the next
-180 days, not making a prediction that current retail pain disappears
-immediately. A short-term market environment may still feel expensive because of
-near-term supply shocks, demand seasonality, or local station pricing, while the
-medium-term model can still show the most likely path leaning lower.
+These variables create the underlying crude oil path. In plain English, they
+answer: "How expensive is crude today, how quickly can it move, and how often
+should we expect surprise jumps?"
 
-In other words, the model is not saying "no one is right." It is saying that,
-under the current assumptions, the combined crude + refining margin + product
-spread relationship points to a likely softer medium-term path for retail fuel
-prices, with a still-present risk of sharp upside shocks.
+### 2. Sovereign production and supply dynamics (`saudi_prod`, `saudi_cap`,
+`russia_prod`, `russia_decay`, `venezuela_cap`, `iran_cap`)
+
+The model treats supply as a constrained system instead of a perfect infinite
+supply assumption.
+
+- `saudi_prod`: the baseline Saudi production level.
+- `saudi_cap`: maximum Saudi spare capacity; Saudi Arabia acts like a balancing
+  producer and can dampen price spikes when it brings more volume online.
+- `russia_prod`: current Russian output baseline.
+- `russia_decay`: negative drift representing aging wells, sanctions exposure,
+  and infrastructure decline.
+- `venezuela_cap`: an export ceiling for Venezuela.
+- `iran_cap`: a cap for Iranian supply.
+
+These variables determine how much oil is physically available to the market.
+The model assumes that the main producers are not interchangeable: Saudi output
+acts like a stabilizer, while Russia is assumed to decline over time and
+sanctioned producers remain volume-constrained.
+
+### 3. Seasonality and refining yields (`day_of_year`, `crack_gas_0`,
+`crack_diesel_0`, `sigma_crack_gas`, `sigma_crack_diesel`)
+
+Gasoline and diesel do not move in a vacuum; their values depend on seasonal
+refining yields and blending rules.
+
+- `day_of_year`: the current day of the year, which drives the seasonal phase.
+- `crack_gas_0`: the initial gasoline crack spread baseline.
+- `crack_diesel_0`: the initial diesel crack spread baseline.
+- `sigma_crack_gas`: volatility of gasoline crack spread movements.
+- `sigma_crack_diesel`: volatility of diesel crack spread movements.
+
+Refining margins are not static. Summer gasoline demand and RVP blending rules
+can create stronger gasoline cracks, while winter diesel and heating demand can
+shift diesel cracks. In the Go model, this is represented as a sinusoidal
+seasonal component layered onto the baseline crack spread.
+
+### 4. Freight and maritime chokepoint risk (`freight_0`,
+`chokepoint_lambda`, `chokepoint_jump_mu`)
+
+The model separates shipping cost from the commodity itself because the freight
+bill is driven by geopolitical risk rather than crude value alone.
+
+- `freight_0`: the baseline tanker freight cost in dollars per barrel.
+- `chokepoint_lambda`: the rate at which conflict-driven shipping disruptions are
+  expected.
+- `chokepoint_jump_mu`: the average extra freight cost added when shipping risk
+  spikes.
+
+A war risk premium or disruption around the Strait of Hormuz or Bab
+el-Mandeb can cause a sharp jump in freight costs even if crude itself does not
+move dramatically. This matters because higher freight can raise delivered retail
+prices even when the crude component is stable.
+
+### 5. SPR intervention logic (`spr_trigger_price`, `spr_floor_price`,
+`spr_max_draw_mbpd`)
+
+The Strategic Petroleum Reserve is modeled as a policy lever rather than an
+abstract damping term.
+
+- `spr_trigger_price`: the crude price threshold at which the U.S. may release
+  reserves.
+- `spr_floor_price`: the lower price floor below which the U.S. may restock.
+- `spr_max_draw_mbpd`: the maximum release rate, in million barrels per day.
+
+When crude prices spike above a trigger threshold, the model can simulate SPR
+release and add supply back to the market. When prices fall below a floor,
+restocking can become a mild drain on supply.
+
+### 6. Interaction between variables
+
+The model works by coupling the drivers like this:
+
+1. Crude price is driven by stochastic volatility and jump risk.
+2. Sovereign production determines physical supply availability and whether the
+   market is tight or loose.
+3. Freight and chokepoint risk change delivery costs and add market stress.
+4. Seasonal crack spreads modify refinery margins and therefore retail fuel
+   prices.
+5. SPR intervention acts as a policy shock that dampens or amplifies the crude
+   price path depending on the price regime.
+
+The final pump price is not just the commodity price. It is the crude price path,
+plus refining margin, plus freight, plus taxes and distribution costs:
+
+`P_t = (S_t + C_t + F_t) / 42 + D_t + T_t`
+
+That is why a forecast can show lower fuel prices even when local gasoline at the
+pump feels expensive today: the forecast is modeling the medium-term path of the
+whole chain, not just the immediate station price you see in the moment.
 
 ## Outputs
 
 After a successful run, the repository contains:
 
-- `params.json`: calibrated inputs and the calibration date
+- `params.json`: legacy market calibration inputs
+- `params_macro.json`: sovereign supply, SPR, freight, crack, and seasonal inputs
 - `results_gas.csv`: one simulated gasoline path per row
 - `results_diesel.csv`: one simulated diesel path per row
-- `gasoline_forecast.png`: 10th-90th, 25th-75th, and median gasoline forecast
-- `diesel_forecast.png`: 10th-90th, 25th-75th, and median diesel forecast
+- `results_macro_gas.csv`: macro-factor gasoline simulations
+- `results_macro_diesel.csv`: macro-factor diesel simulations
+- `gasoline_forecast.png`: chart for the gasoline path with the as-of date
+- `diesel_forecast.png`: chart for the diesel path with the as-of date
+
+### Diesel Forecast
+
+![Diesel forecast prediction](diesel_forecast.png)
 
 These generated files are ignored by Git. Keep them locally or publish them to
 the reporting location used by your operations process.
