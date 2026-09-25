@@ -9,9 +9,10 @@ simulations, and generates forecast charts for retail gasoline and diesel.
 - `calibrate.py` downloads crude, gasoline, and diesel futures data with
   `yfinance`, estimates volatility and crack spread levels, and writes the
   model inputs to `params.json` and `params_macro.json`.
-- `simulate.go` reads those calibrations and simulates 10,000 180-day fuel paths.
-  It now includes sovereign production behavior, SPR intervention logic,
-  chokepoint freight risk, and seasonal refinery margin effects.
+- `simulate.go` reads those calibrations and simulates 2,000 180-day fuel
+  paths by default (configurable via `sims` in `params_macro.json`). It now
+  includes sovereign production behavior, SPR intervention logic, chokepoint
+  freight risk, and seasonal refinery margin effects.
 - `report_gen.py` reads the simulation CSVs and creates percentile-band charts:
   `gasoline_forecast.png` and `diesel_forecast.png` with the date stamped in the
   title.
@@ -72,8 +73,11 @@ python scenario_report.py
 ```
 
 The default model uses 252 days of calibration data, a 180-day forecast
-horizon, and 10,000 simulation paths. Calibration must run before simulation
-because `simulate.go` requires the generated `params.json` file.
+horizon, and 2,000 simulation paths (set by `sims` in `params_macro.json`;
+omit it, or set it to 0, and `simulate.go` falls back to the same 2,000-path
+default). Raise it for tighter tail percentiles at the cost of longer run
+time, or lower it for faster iteration. Calibration must run before
+simulation because `simulate.go` requires the generated `params.json` file.
 
 ## Model Logic: How the Variables Interact
 

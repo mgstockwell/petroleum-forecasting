@@ -42,11 +42,12 @@ type MacroParams struct {
 	HormuzRate       float64 `json:"hormuz_rate"`
 	BabRate          float64 `json:"bab_rate"`
 	ShippingCost0    float64 `json:"shipping_cost_0"`
+	Sims             int     `json:"sims"`
 }
 
 const (
 	Days             = 180
-	Sims             = 10000
+	DefaultSims      = 2000
 	Dt               = 1.0 / 365.0
 	TaxG             = 0.57
 	DistG            = 0.65
@@ -88,12 +89,17 @@ func main() {
 }
 
 func runSimulation(p MacroParams) {
-	var wg sync.WaitGroup
-	gasResults := make([][]string, Sims)
-	dieselResults := make([][]string, Sims)
+	sims := p.Sims
+	if sims <= 0 {
+		sims = DefaultSims
+	}
 
-	fmt.Println("Running 10,000 multi-factor macro paths...")
-	for i := 0; i < Sims; i++ {
+	var wg sync.WaitGroup
+	gasResults := make([][]string, sims)
+	dieselResults := make([][]string, sims)
+
+	fmt.Printf("Running %d multi-factor macro paths...\n", sims)
+	for i := 0; i < sims; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

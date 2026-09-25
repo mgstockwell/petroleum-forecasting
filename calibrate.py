@@ -66,6 +66,7 @@ def calibrate_daily_parameters(lookback_days=252):
         "hormuz_rate": 20.0,
         "bab_rate": 9.0,
         "shipping_cost_0": 0.15,
+        "sims": 2000,
         "spr_trigger_price": 95.00,
         "spr_floor_price": 70.00,
         "spr_max_draw_mbpd": 1.0,
