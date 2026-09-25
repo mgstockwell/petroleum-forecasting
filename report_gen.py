@@ -1,3 +1,5 @@
+from datetime import date
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -5,6 +7,7 @@ import pandas as pd
 
 def generate_chart(commodity, filename, color_base):
     print(f"Generating chart for {commodity}...")
+    as_of = date.today().strftime("%Y-%m-%d")
     df = pd.read_csv(filename, header=None).astype(float)
 
     days = np.arange(1, df.shape[1] + 1)
@@ -19,7 +22,7 @@ def generate_chart(commodity, filename, color_base):
     ax.fill_between(days, p25, p75, color=color_base, alpha=0.4, label="25th-75th Percentile (Normal Range)")
     ax.plot(days, p50, color="black", linewidth=2, label="Median Forecast")
 
-    ax.set_title(f"180-Day Stochastic Forecast: Retail {commodity}")
+    ax.set_title(f"180-Day Stochastic Forecast: Retail {commodity}\nAs of {as_of}")
     ax.set_xlabel("Days Forward")
     ax.set_ylabel("Price (USD / Gallon)")
     ax.legend(loc="upper left")
