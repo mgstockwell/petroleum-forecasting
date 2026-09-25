@@ -42,6 +42,12 @@ MUTED_INK = "#898781"
 SURFACE = "#fcfcfb"
 GRID = "#e1e0d9"
 
+# Mirrors simulate.go's DefaultSims fallback, used only for the report's
+# path-count caption when "sims" is absent from params_macro.json.
+DEFAULT_SIMS = 2000
+
+AAA_GAS_PRICES_URL = "https://gasprices.aaa.com/"
+
 
 def load_base_params():
     if not os.path.exists(PARAMS_FILE):
@@ -287,7 +293,9 @@ def build_summary_rows(scenarios, gas_bands_by_id, diesel_bands_by_id):
     return rows
 
 
-def render_report(scenarios, summary_rows, as_of):
+def render_report(scenarios, summary_rows, as_of, base):
+    sims = base.get("sims") or DEFAULT_SIMS
+    calibrated_date = base.get("date_calibrated") or "unknown"
     base_row = next(r for r in summary_rows if r["id"] == "base")
     non_base = [r for r in summary_rows if r["id"] != "base"]
     most_bullish = max(non_base, key=lambda r: r["gas_day180_p50"])
@@ -298,7 +306,15 @@ def render_report(scenarios, summary_rows, as_of):
 
     lines = []
     lines.append(f"# Oil & Fuels Market Outlook - Scenario Analysis")
-    lines.append(f"*As of {as_of} | 10,000-path Monte Carlo, 180-day horizon*\n")
+    lines.append(f"*As of {as_of} | {sims:,}-path Monte Carlo, 180-day horizon*\n")
+    lines.append(
+        f"**Compare against today's actual retail price:** "
+        f"[AAA National Average Gas Prices]({AAA_GAS_PRICES_URL}). This model "
+        f"projects a *medium-term path* for the crude-to-pump price chain, not "
+        f"today's station price, so some gap is expected — but if the gap looks "
+        f"large, check the \"Calibration inputs\" line under Methodology first: "
+        f"the model is only as current as the last `calibrate.py` run.\n"
+    )
 
     lines.append("## Executive Summary\n")
     lines.append(
@@ -350,7 +366,7 @@ def render_report(scenarios, summary_rows, as_of):
 
     lines.append("## Methodology\n")
     lines.append(
-        "Each scenario re-runs the full 10,000-path stochastic simulation "
+        f"Each scenario re-runs the full {sims:,}-path stochastic simulation "
         "(`simulate.go`) with a modified set of inputs. Chokepoint scenarios "
         "(Hormuz closure/de-risking) adjust the model's existing disruption "
         "frequency and shipping-risk mechanics directly. Production scenarios "
@@ -362,8 +378,16 @@ def render_report(scenarios, summary_rows, as_of):
         "carry wider, not just higher or lower, confidence bands. This is a "
         "model output for illustrative what-if analysis, not investment advice.\n"
     )
+    lines.append(
+        f"**Calibration inputs:** last calibrated on **{calibrated_date}** by "
+        "`calibrate.py` from live NYMEX crude/gasoline/diesel futures "
+        "(`yfinance`). If that date is stale, or reads \"unknown\" (no "
+        "`date_calibrated` field), the base case below reflects old or "
+        "placeholder inputs rather than today's market — re-run "
+        "`python calibrate.py` before trusting the baseline.\n"
+    )
 
-    with open("oil_market_outlook.md", "w") as f:
+    with open("oil_market_outlook.md", "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     print("Saved oil_market_outlook.md")
 
@@ -406,7 +430,7 @@ def main():
     plot_scenario_paths(scenarios, diesel_bands_by_id, "Diesel", "scenario_diesel_paths.png")
     summary_rows = build_summary_rows(scenarios, gas_bands_by_id, diesel_bands_by_id)
     plot_day180_ranking(scenarios, summary_rows, "scenario_day180_ranking.png")
-    render_report(scenarios, summary_rows, as_of)
+    render_report(scenarios, summary_rows, as_of, base)
 
 
 if __name__ == "__main__":
