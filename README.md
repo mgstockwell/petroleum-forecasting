@@ -277,9 +277,18 @@ than a disposable daily run.
      the task output or configure a failure notification
 
 The task account must have write access to the repository folder. Because the
-batch file calls `python` and `go`, those commands must be on that account's
-`PATH`; alternatively, update the batch file to use absolute paths to the
-virtual-environment Python executable and the Go installation.
+batch file calls `python`, `go`, and `git`, those commands must be on that
+account's `PATH`; alternatively, update the batch file to use absolute paths
+to the virtual-environment Python executable, the Go installation, and Git.
+
+The final pipeline step commits and pushes `oil_market_outlook.md` and its
+three chart PNGs straight to `main` if they changed since the last run (it
+skips the commit if nothing changed). This requires the repository folder to
+be checked out on `main` with push access already working non-interactively
+— i.e. an SSH key loaded in an agent, or a credential helper with a cached
+token — since a Task Scheduler run cannot prompt for a password. Test this by
+running `run_pipeline.bat` manually first and confirming the push succeeds
+without a prompt.
 
 This repository does not currently expose an HTTP service or container image.
 For server deployment, use the same scheduled batch workflow on a Windows
