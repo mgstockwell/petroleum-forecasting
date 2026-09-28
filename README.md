@@ -15,7 +15,11 @@ simulations, and generates forecast charts for retail gasoline and diesel.
   freight risk, and seasonal refinery margin effects.
 - `report_gen.py` reads the simulation CSVs and creates percentile-band charts:
   `gasoline_forecast.png` and `diesel_forecast.png` with the date stamped in the
-  title.
+  title. Each chart also overlays a 180-day historical backtest before day 0,
+  reconstructed from RBOB gasoline and heating-oil futures closes, so the
+  forecast reads as a continuous 360-day window (180 back, 180 forward). This
+  requires internet access the same as `calibrate.py`; if the historical fetch
+  fails for any reason, the chart still renders with just the forecast half.
 - `run_pipeline.bat` runs calibration, builds and runs the Go simulation,
   generates both charts, and refreshes the scenario what-if report. It publishes
   the report, forecast charts, and scenario charts to `main`, and stops if any
@@ -259,8 +263,9 @@ After a successful run, the repository contains:
 
 ![Diesel forecast prediction](diesel_forecast.png)
 
-These generated files are ignored by Git. Keep them locally or publish them to
-the reporting location used by your operations process.
+`gasoline_forecast.png` and `diesel_forecast.png` are tracked in Git (for the
+README embeds above); the CSV/JSON data files are ignored. Keep those locally
+or publish them to the reporting location used by your operations process.
 
 ### Scenario / What-If Report
 
@@ -275,7 +280,9 @@ tail-risk case:
   per-scenario breakdown, and a methodology section describing the
   elasticity assumption used to size production shocks.
 - `scenario_gasoline_paths.png` / `scenario_diesel_paths.png`: median price
-  paths per scenario over the base case's percentile bands.
+  paths per scenario over the base case's percentile bands. Adjacent
+  scenarios alternate solid and dotted lines (in addition to color) so
+  similarly-colored series stay distinguishable.
 - `scenario_day180_ranking.png`: a day-180 median price ranking across
   scenarios.
 
