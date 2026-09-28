@@ -16,6 +16,7 @@ results_gas.csv
 results_diesel.csv
 results_macro_gas.csv
 results_macro_diesel.csv
+anchor_path.csv
 *_forecast.pdf
 *_forecast.png
 !gasoline_forecast.png

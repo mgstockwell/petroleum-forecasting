@@ -26,6 +26,7 @@ GAS_CSV = "results_macro_gas.csv"
 DIESEL_CSV = "results_macro_diesel.csv"
 LEGACY_GAS_CSV = "results_gas.csv"
 LEGACY_DIESEL_CSV = "results_diesel.csv"
+ANCHOR_CSV = "anchor_path.csv"
 
 # Short-run oil demand elasticity rule of thumb: oil demand barely responds to
 # price in the short run, so each 1% of global supply added or removed is
@@ -406,6 +407,18 @@ def render_report(scenarios, summary_rows, as_of, base, aaa_prices):
         "model output for illustrative what-if analysis, not investment advice.\n"
     )
     lines.append(
+        "**Drift anchor:** the base case has no independent view on direction. "
+        "Crude and both crack spreads are anchored to the CL/HO/RB forward "
+        "curves, so the expected path is the market's own, and the simulation "
+        "supplies the distribution around it. Scenario shocks shift that whole "
+        "anchor path rather than replacing it. Futures are a risk-neutral "
+        "expectation and not a forecast - in backwardation they will tend to "
+        "read lower than a realized spot path - so treat the level as "
+        "market-implied rather than predicted. Note also that the **median** "
+        "sits below the **mean** at longer horizons because crude is lognormal: "
+        "that gap is a property of the distribution, not a bearish view.\n"
+    )
+    lines.append(
         f"**Calibration inputs:** last calibrated on **{calibrated_date}** by "
         "`calibrate.py` from live NYMEX crude/gasoline/diesel futures "
         "(`yfinance`). If that date is stale, or reads \"unknown\" (no "
@@ -436,22 +449,28 @@ def main():
         gas_bands_by_id[scenario["id"]] = percentile_bands(gas_df)
         diesel_bands_by_id[scenario["id"]] = percentile_bands(diesel_df)
         if scenario["id"] == "base":
-            with open(GAS_CSV) as f:
-                cached_base_csvs[GAS_CSV] = f.read()
-            with open(DIESEL_CSV) as f:
-                cached_base_csvs[DIESEL_CSV] = f.read()
+            for filename in (GAS_CSV, DIESEL_CSV, ANCHOR_CSV):
+                if os.path.exists(filename):
+                    with open(filename) as f:
+                        cached_base_csvs[filename] = f.read()
 
     # Restore params_macro.json and the standard result CSVs to the true base
     # case so the rest of the pipeline (report_gen.py, run_pipeline.bat) is
-    # left in a normal, non-scenario state.
+    # left in a normal, non-scenario state. The anchor path is restored too,
+    # otherwise a standalone report_gen.py re-run would plot the last
+    # scenario's forward curve against the base case's simulated bands.
     with open(PARAMS_FILE, "w") as f:
         f.write(original_text)
-    for filename in (GAS_CSV, LEGACY_GAS_CSV):
-        with open(filename, "w") as f:
-            f.write(cached_base_csvs[GAS_CSV])
-    for filename in (DIESEL_CSV, LEGACY_DIESEL_CSV):
-        with open(filename, "w") as f:
-            f.write(cached_base_csvs[DIESEL_CSV])
+    for source, targets in (
+        (GAS_CSV, (GAS_CSV, LEGACY_GAS_CSV)),
+        (DIESEL_CSV, (DIESEL_CSV, LEGACY_DIESEL_CSV)),
+        (ANCHOR_CSV, (ANCHOR_CSV,)),
+    ):
+        if source not in cached_base_csvs:
+            continue
+        for filename in targets:
+            with open(filename, "w") as f:
+                f.write(cached_base_csvs[source])
 
     as_of = date.today().strftime("%Y-%m-%d")
     plot_scenario_paths(scenarios, gas_bands_by_id, "Gasoline", "scenario_gasoline_paths.png")

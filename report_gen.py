@@ -10,6 +10,7 @@ import yfinance as yf
 from calibrate import _get_price_frame
 
 PARAMS_FILE = "params_macro.json"
+ANCHOR_FILE = "anchor_path.csv"
 BACKTEST_DAYS = 180
 
 # Mirrors simulate.go's tax/distribution constants - keep in sync if those change.
@@ -27,6 +28,21 @@ def load_freight_assumptions():
     return params.get("freight_0", 0.0), params.get("shipping_cost_0", 0.0)
 
 
+def load_anchor():
+    """Reads the deterministic anchor path the simulator was built around.
+
+    Returns None when absent so the chart still renders from an older run's
+    CSVs without it.
+    """
+    if not os.path.exists(ANCHOR_FILE):
+        return None
+    anchor = pd.read_csv(ANCHOR_FILE)
+    return {
+        "Gasoline": anchor["gas_retail"].to_numpy(),
+        "Diesel": anchor["diesel_retail"].to_numpy(),
+    }
+
+
 def fetch_historical_implied_retail(days=BACKTEST_DAYS):
     """Reconstructs an approximate historical retail price from RBOB gasoline
     and heating-oil futures closes (which already price in crude + crack
@@ -34,6 +50,10 @@ def fetch_historical_implied_retail(days=BACKTEST_DAYS):
     historical freight series is available. Returns None on any failure -
     missing params, no internet, empty data - so the forecast chart can still
     render without the backtest overlay.
+
+    Prices are pulled unadjusted (auto_adjust=False) to match calibrate.py.
+    Back-adjusted futures settlements are shifted by the roll history, which
+    would leave the overlay's last point offset from the forecast's first.
     """
     freight_shipping = load_freight_assumptions()
     if freight_shipping is None:
@@ -41,7 +61,8 @@ def fetch_historical_implied_retail(days=BACKTEST_DAYS):
         return None
     freight_0, shipping_cost_0 = freight_shipping
     try:
-        raw = yf.download(["RB=F", "HO=F"], period=f"{days + 30}d", progress=False)
+        raw = yf.download(["RB=F", "HO=F"], period=f"{days + 30}d", progress=False,
+                          auto_adjust=False)
         if raw.empty:
             raise ValueError("no market data returned")
         data = _get_price_frame(raw).dropna()
@@ -61,7 +82,7 @@ def fetch_historical_implied_retail(days=BACKTEST_DAYS):
         return None
 
 
-def generate_chart(commodity, filename, color_base, historical):
+def generate_chart(commodity, filename, color_base, historical, anchor):
     print(f"Generating chart for {commodity}...")
     as_of = date.today().strftime("%Y-%m-%d")
     df = pd.read_csv(filename, header=None).astype(float)
@@ -72,18 +93,30 @@ def generate_chart(commodity, filename, color_base, historical):
     p50 = df.quantile(0.50, axis=0)
     p75 = df.quantile(0.75, axis=0)
     p90 = df.quantile(0.90, axis=0)
+    mean = df.mean(axis=0)
 
     fig, ax = plt.subplots(figsize=(12, 6.5))
 
     if historical is not None:
         hist_days = np.arange(-len(historical), 0)
         ax.plot(hist_days, historical, color="dimgray", linewidth=1.5,
-                 label=f"Historical implied retail (~{len(historical)}d, approx.)")
+                label=f"Historical implied retail (~{len(historical)}d, approx.)")
         ax.axvline(0, color="dimgray", linewidth=1, linestyle="--")
 
-    ax.fill_between(forward_days, p10, p90, color=color_base, alpha=0.2, label="10th-90th Percentile (Tail Risk)")
-    ax.fill_between(forward_days, p25, p75, color=color_base, alpha=0.4, label="25th-75th Percentile (Normal Range)")
-    ax.plot(forward_days, p50, color="black", linewidth=2, label="Median Forecast")
+    ax.fill_between(forward_days, p10, p90, color=color_base, alpha=0.2,
+                    label="10th-90th Percentile (Tail Risk)")
+    ax.fill_between(forward_days, p25, p75, color=color_base, alpha=0.4,
+                    label="25th-75th Percentile (Normal Range)")
+
+    if anchor is not None:
+        ax.plot(forward_days, anchor[:len(forward_days)], color="#1a6fb5", linewidth=2,
+                linestyle=(0, (5, 2)), label="Market-implied anchor (forward curve)")
+    # The mean tracks the curve anchor; the median sits below it because crude
+    # is lognormal, so high volatility drags the median down even with no
+    # bearish view. Both are shown so that gap is visible rather than implied.
+    ax.plot(forward_days, mean, color="black", linewidth=2, label="Mean Forecast")
+    ax.plot(forward_days, p50, color="black", linewidth=1.5, linestyle=":",
+            label="Median Forecast")
 
     if historical is not None:
         title = f"{BACKTEST_DAYS}-Day Backtest + 180-Day Forecast: Retail {commodity}"
@@ -108,5 +141,6 @@ if __name__ == "__main__":
     diesel_file = "results_macro_diesel.csv" if os.path.exists("results_macro_diesel.csv") else "results_diesel.csv"
     historical = fetch_historical_implied_retail()
     hist_gas, hist_diesel = historical if historical is not None else (None, None)
-    generate_chart("Gasoline", gas_file, "blue", hist_gas)
-    generate_chart("Diesel", diesel_file, "red", hist_diesel)
+    anchors = load_anchor() or {}
+    generate_chart("Gasoline", gas_file, "blue", hist_gas, anchors.get("Gasoline"))
+    generate_chart("Diesel", diesel_file, "red", hist_diesel, anchors.get("Diesel"))

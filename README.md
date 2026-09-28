@@ -7,15 +7,24 @@ simulations, and generates forecast charts for retail gasoline and diesel.
 ## Files
 
 - `calibrate.py` downloads crude, gasoline, and diesel futures data with
-  `yfinance`, estimates volatility and crack spread levels, and writes the
-  model inputs to `params.json` and `params_macro.json`.
+  `yfinance` and writes the model inputs to `params.json` and
+  `params_macro.json`. It estimates three groups of inputs: today's spot state
+  (crude price, crack spreads, jump-filtered volatility), the **forward
+  curves** for CL/HO/RB that give the model its drift, and slow-moving
+  structural dynamics (jump frequency and size, crack mean-reversion speed,
+  crack volatility in $/bbl, crack seasonality) fitted to ten years of history.
 - `simulate.go` reads those calibrations and simulates 2,000 180-day fuel
-  paths by default (configurable via `sims` in `params_macro.json`). It now
-  includes sovereign production behavior, SPR intervention logic, chokepoint
-  freight risk, and seasonal refinery margin effects.
+  paths by default (configurable via `sims` in `params_macro.json`). It
+  anchors crude and both crack spreads to the forward curves, adds Merton
+  jump-diffusion on crude, and layers sovereign production behavior, SPR
+  intervention logic, chokepoint freight risk, and mean-reverting crack
+  spreads on top. It also writes `anchor_path.csv`, the deterministic path the
+  simulation is built around.
 - `report_gen.py` reads the simulation CSVs and creates percentile-band charts:
   `gasoline_forecast.png` and `diesel_forecast.png` with the date stamped in the
-  title. Each chart also overlays a 180-day historical backtest before day 0,
+  title. Each chart plots the **mean** and **median** forecast plus the market
+  forward curve anchor, so the gap between them is visible rather than implied.
+  Each chart also overlays a 180-day historical backtest before day 0,
   reconstructed from RBOB gasoline and heating-oil futures closes, so the
   forecast reads as a continuous 360-day window (180 back, 180 forward). This
   requires internet access the same as `calibrate.py`; if the historical fetch
@@ -82,95 +91,176 @@ python report_gen.py
 python scenario_report.py
 ```
 
-The default model uses 252 days of calibration data, a 180-day forecast
-horizon, and 2,000 simulation paths (set by `sims` in `params_macro.json`;
-omit it, or set it to 0, and `simulate.go` falls back to the same 2,000-path
-default). Raise it for tighter tail percentiles at the cost of longer run
-time, or lower it for faster iteration. Calibration must run before
-simulation because `simulate.go` requires the generated `params.json` file.
+The default model uses 252 days of data for the responsive volatility
+estimate, ten years for the structural estimates (jumps, crack reversion,
+seasonality), the next ten contract months for the forward curves, a 180-day
+forecast horizon, and 2,000 simulation paths (set by `sims` in
+`params_macro.json`; omit it, or set it to 0, and `simulate.go` falls back to
+the same 2,000-path default). Raise it for tighter tail percentiles at the
+cost of longer run time, or lower it for faster iteration. Calibration must
+run before simulation because `simulate.go` requires the generated
+`params.json` file.
 
 ## Model Logic: How the Variables Interact
 
-This project is no longer a single jump-diffusion crude model. It is a coupled
-system of stochastic equations that separates raw commodity pricing from the
-real-world constraints that affect retail fuel costs.
+This project is a coupled system of stochastic equations that separates raw
+commodity pricing from the real-world constraints that affect retail fuel
+costs. The single most important thing to understand is where the model's
+*direction* comes from, so that is section 1.
 
-### 1. Crude price component (`s0`, `sigma_crude`, `jump_lambda`, `jump_mu`)
+### 1. The market-implied anchor (`curve_crude`, `curve_crack_gas`,
+`curve_crack_diesel`, `curve_drift_weight`)
+
+A stochastic model has to get its sense of direction from somewhere. Estimating
+a trend from recent price history is a bad way to do it — trailing momentum is
+a poor predictor of forward oil prices, and extrapolating it would just encode
+whatever the last few months happened to do.
+
+Instead, the model reads the **forward curve**. `calibrate.py` pulls the next
+ten CL, HO, and RB contract months and converts them into the path the market
+itself expects crude and both crack spreads to follow:
+
+- `curve_crude`: `[days_out, price]` pairs from the CL curve.
+- `curve_crack_gas` / `curve_crack_diesel`: implied forward cracks, computed
+  from same-maturity RB/HO and CL settlements.
+- `curve_drift_weight`: how much of the curve's drift to apply. `1.0` follows
+  it in full; lower it to discount the curve.
+
+`simulate.go` interpolates these into a daily anchor path. Crude is anchored
+multiplicatively (the curve's *shape* applied to today's spot) and the cracks
+additively, since a spread is a difference and can sit near zero. Both are
+pinned to today's observed value at day 0, so the anchor starts exactly where
+the market is, and the curve is held flat beyond its quoted range rather than
+extrapolated into a fabricated slope.
+
+Two consequences worth internalizing:
+
+- **The base case has no independent view.** The model's expected path *is*
+  the market's. What the simulation adds is the distribution around it.
+- **Futures are a risk-neutral expectation, not a forecast.** In
+  backwardation the curve reads lower than a realized spot path typically
+  turns out to be. Treat the level as market-implied, not predicted, and use
+  `curve_drift_weight` if you want to discount it.
+
+If the curve cannot be fetched, the model falls back to mean reversion toward
+the fitted long-run crack level plus its seasonal cycle, and to a **flat**
+crude anchor — no directional view at all, which is the honest answer when
+there is no forward data to read one from.
+
+### 2. Crude price component (`s0`, `sigma_crude`, `jump_lambda`, `jump_mu`,
+`jump_sigma`)
 
 - `s0`: the current crude price baseline.
-- `sigma_crude`: the volatility of crude returns used in the stochastic price
-  driver.
-- `jump_lambda`: the expected frequency of large unexpected crude shocks.
-- `jump_mu`: the average magnitude of those shocks.
+- `sigma_crude`: diffusion volatility of crude returns. Estimated on an EWM of
+  the last 252 days with jump days removed, so the jump component is not
+  counted twice.
+- `jump_lambda`: jump frequency per year, estimated by flagging daily log
+  returns beyond 4 robust (MAD-scaled) standard deviations.
+- `jump_mu` / `jump_sigma`: mean and dispersion of those jumps in log terms.
 
-These variables create the underlying crude oil path. In plain English, they
-answer: "How expensive is crude today, how quickly can it move, and how often
-should we expect surprise jumps?"
+Crude follows Merton jump-diffusion: a lognormal diffusion around the anchor
+path plus a compound Poisson jump. The jump term carries a **compensator**
+(`-lambda * (e^(mu + sigma^2/2) - 1)`) so that adding jumps widens the
+distribution without silently shifting the whole forecast off the curve it is
+anchored to.
 
-### 2. Sovereign production and supply dynamics (`saudi_prod`, `saudi_cap`,
-`russia_prod`, `russia_decay`, `venezuela_cap`, `iran_cap`, `iran_prod`,
-`us_prod`, `us_cap`, `other_prod`, `other_cap`)
+One statistical property to keep in mind when reading the charts: crude is
+lognormal, so at high volatility the **median** drifts below the **mean** even
+with zero drift. At `sigma_crude` near 0.45 that is roughly a 5% gap over 180
+days. The charts plot both. The gap is a property of the distribution, not a
+bearish view — which is why the median alone is a misleading headline.
+
+### 3. Sovereign production and supply dynamics (`saudi_prod`, `saudi_cap`,
+`saudi_response`, `russia_prod`, `russia_decay`, `venezuela_cap`, `iran_cap`,
+`iran_prod`, `us_prod`, `us_cap`, `us_response`, `other_prod`, `other_cap`,
+`other_response`)
 
 The model treats supply as a constrained system instead of a perfect infinite
 supply assumption.
 
-- `saudi_prod`: the baseline Saudi production level.
-- `saudi_cap`: maximum Saudi spare capacity; Saudi Arabia acts like a balancing
-  producer, adding output as price rises above its ~$80 target (dampening
-  spikes) and pulling back as price falls below it.
-- `russia_prod`: current Russian output baseline.
-- `russia_decay`: negative drift representing aging wells, sanctions exposure,
-  and infrastructure decline.
+Producers respond to **how far crude has strayed from the anchor path**, not to
+its absolute level:
+
+```
+deviation = S_t - anchor(t)
+saudiQ   += saudi_response * deviation * dt
+```
+
+This matters. The forward curve already prices in the supply response the
+market expects, so charging for it a second time against a fixed dollar target
+would manufacture a drift out of nothing more than a high spot price. Keying
+the response to the deviation makes the supply block a genuine *stabilizer*:
+it pushes back when price strays from the expected path and is silent when
+price is on it. It also means these parameters never go stale, because the
+anchor is recalibrated from the market every run.
+
+- `saudi_prod` / `saudi_cap` / `saudi_floor` / `saudi_response`: Saudi Arabia
+  acts as a balancing producer, adding output when crude runs above the
+  anchor and pulling back below it.
+- `russia_prod` / `russia_decay`: current output and a negative drift
+  representing aging wells, sanctions exposure, and infrastructure decline.
+  Russia does not respond to price.
+- `us_prod` / `us_cap` / `us_floor` / `us_response`: US shale, the most
+  price-responsive producer in the model, bounded by a high marginal-cost
+  floor reflecting existing wells that aren't easily shut in.
+- `other_prod` / `other_cap` / `other_response`: an aggregated "rest of world"
+  baseline and ceiling, modeled as a slow-moving aggregate.
+- `iran_prod` / `iran_cap` / `iran_drift_rate`: Iran is sanctions-constrained
+  and barely responds to price. `iran_drift_rate` defaults to `0.0` (output
+  holds flat); a sanctions-relief scenario sets it above zero so output ramps
+  toward the new cap over the horizon.
 - `venezuela_cap`: an export ceiling for Venezuela. (Not yet wired into the
   simulation's production dynamics — currently informational only.)
-- `iran_cap`: a cap for Iranian supply.
-- `iran_prod`: baseline Iranian production. Iran is modeled as
-  sanctions-constrained and barely responds to price, unlike a true swing
-  producer.
-- `iran_drift_rate`: how fast Iranian output drifts toward `iran_cap`,
-  independent of price. Defaults to `0.0` in the base case (output holds flat
-  under current sanctions); a scenario representing sanctions relief sets
-  this above zero so output actually ramps toward the new cap over the
-  forecast horizon.
-- `us_prod` / `us_cap`: baseline and maximum US (shale) production. US output
-  behaves like a price-responsive swing producer, ramping up *above* a
-  breakeven price and cutting back below it — the same stabilizing direction
-  as Saudi Arabia, just around a lower ($65) breakeven — and is bounded by a
-  higher marginal-cost floor that reflects existing wells that aren't easily
-  shut in.
-- `other_prod` / `other_cap`: an aggregated "rest of world" production
-  baseline and ceiling covering all other producing countries, modeled as a
-  slow-moving aggregate with the same stabilizing price response as Saudi,
-  around a ~$75 target.
 
-These variables determine how much oil is physically available to the market.
-The model assumes that the main producers are not interchangeable: Saudi,
-US shale, and the "rest of world" aggregate all act as stabilizers that add
-supply when price is high and withdraw it when price is low (each around a
-different target/breakeven price), Russia is assumed to decline over time,
-and Iran remains sanctioned and flat unless a scenario explicitly models
-relief.
+The net imbalance against the calibrated baseline feeds back into crude drift
+at `SupplyPriceImpact` (0.1 annualized drift per 1 mb/d of imbalance).
 
-### 3. Seasonality and refining yields (`day_of_year`, `crack_gas_0`,
-`crack_diesel_0`, `sigma_crack_gas`, `sigma_crack_diesel`)
+### 4. Crack spreads: reversion, volatility, and seasonality
+(`crack_gas_0`, `crack_diesel_0`, `crack_*_kappa`, `crack_*_theta`,
+`sigma_crack_*_bbl`, `crack_*_seasonal_amp`, `crack_*_seasonal_phase`)
 
 Gasoline and diesel do not move in a vacuum; their values depend on seasonal
-refining yields and blending rules.
+refining yields and blending rules. The crack spread is frequently the
+*dominant* term — a diesel crack near $95/bbl is $2.26 of a $6.10 pump price,
+more than the crude itself.
 
-- `day_of_year`: the current day of the year, which drives the seasonal phase.
-- `crack_gas_0`: the initial gasoline crack spread baseline.
-- `crack_diesel_0`: the initial diesel crack spread baseline.
-- `sigma_crack_gas`: volatility of gasoline crack spread movements.
-- `sigma_crack_diesel`: volatility of diesel crack spread movements.
+Each crack is carried as **anchor plus a mean-reverting deviation**:
 
-Refining margins are not static. Summer gasoline demand and RVP blending rules
-can create stronger gasoline cracks, while winter diesel and heating demand can
-shift diesel cracks. In the Go model, this is represented as a sinusoidal
-seasonal component layered onto the baseline crack spread.
+```
+dev   += -kappa * dev * dt + sigma_bbl * sqrt(dt) * Z
+crack  = anchor(t) + dev
+```
 
-### 4. Freight and maritime chokepoint risk (`freight_0`,
-`chokepoint_lambda`, `chokepoint_jump_mu`, `hormuz_rate`, `bab_rate`,
-`shipping_cost_0`)
+Written this way the simulated spread tracks the anchor exactly in
+expectation rather than lagging behind it, which matters because the forward
+crack curve can move sharply (the RBOB curve steps up into summer-grade
+season). The deviation is seeded with today's gap to the anchor, which makes
+both modes fall out of the same expression: under a forward curve that gap is
+zero, and in fallback mode it decays from today's level toward the long-run
+one at the fitted speed.
+
+- `crack_*_kappa` / `crack_*_theta`: reversion speed (per year) and long-run
+  level ($/bbl), from an OLS fit of daily change on level over ten years.
+- `sigma_crack_*_bbl`: crack volatility in **dollars per barrel per year**.
+  The older `sigma_crack_gas` / `sigma_crack_diesel` fields were log-return
+  volatilities of the *product* futures and were never in the right units to
+  drive a spread, which is why they sat unused.
+- `crack_*_seasonal_amp` / `_phase`: amplitude and phase of the annual cycle,
+  fitted by sin/cos regression on the deviation from a centred one-year
+  rolling mean. **Used only in fallback mode** — when a forward curve is
+  available it already contains the seasonality, and applying both would
+  double-count it.
+
+Worth knowing what that fit actually says: gasoline crack seasonality is
+strong and stable (amplitude around $9/bbl, peaking in early June, R² above
+0.5 across 5/10/15-year windows), which is the summer driving season and RVP
+blending rules. Diesel crack seasonality is weak (amplitude under $2/bbl, R²
+about 0.02) — the heating-season effect is real but small and easily swamped
+by supply shocks.
+
+### 5. Freight and maritime chokepoint risk (`freight_0`,
+`chokepoint_lambda`, `chokepoint_jump_mu`, `chokepoint_decay`, `hormuz_rate`,
+`bab_rate`, `shipping_cost_0`)
 
 The model separates shipping cost from the commodity itself because the freight
 bill is driven by geopolitical risk rather than crude value alone.
@@ -180,11 +270,15 @@ bill is driven by geopolitical risk rather than crude value alone.
   expected.
 - `chokepoint_jump_mu`: the average extra freight cost added when shipping risk
   spikes.
+- `chokepoint_decay`: how fast a disruption's supply effect fades (12.0 is a
+  half-life of about 21 days). Without this a disruption would last a single
+  simulation step and move crude by a few hundredths of a percent, making the
+  whole chokepoint mechanism freight-only in practice.
 - `hormuz_rate` / `bab_rate`: the daily oil volume (million barrels per day)
   that normally transits the Strait of Hormuz and Bab el-Mandeb. When a
   disruption event fires, the model picks a strait weighted by relative
   traffic and scales the *severity* of that event — the freight jump, the
-  shipping cost jump, and a temporary supply shock all get bigger the busier
+  shipping cost jump, and a persistent supply shock all get bigger the busier
   the affected strait normally is.
 - `shipping_cost_0`: the baseline war-risk/insurance premium in dollars per
   barrel. Unlike `freight_0`, which represents the physical tanker charter
@@ -192,49 +286,48 @@ bill is driven by geopolitical risk rather than crude value alone.
   on top of freight, and it reverts to baseline faster once a disruption
   passes.
 
-A war risk premium or disruption around the Strait of Hormuz or Bab
-el-Mandeb can cause a sharp jump in freight and insurance costs even if crude
-itself does not move dramatically. This matters because higher freight and
-shipping costs can raise delivered retail prices even when the crude
-component is stable.
-
-### 5. SPR intervention logic (`spr_trigger_price`, `spr_floor_price`,
+### 6. SPR intervention logic (`spr_trigger_ratio`, `spr_floor_ratio`,
 `spr_max_draw_mbpd`, `spr_level_mbbl`, `spr_capacity_mbbl`)
 
 The Strategic Petroleum Reserve is modeled as a policy lever with a persistent,
 depletable stock, not just an abstract damping term.
 
-- `spr_trigger_price`: the crude price threshold at which the U.S. may release
-  reserves.
-- `spr_floor_price`: the lower price floor below which the U.S. may restock.
+- `spr_trigger_ratio`: release threshold as a **multiple of the anchor path**
+  (default 1.25).
+- `spr_floor_ratio`: restock threshold, likewise relative (default 0.75).
 - `spr_max_draw_mbpd`: the maximum release rate, in million barrels per day.
 - `spr_level_mbbl`: the current reserve level, in million barrels. This is a
   manual estimate (not pulled live) that should be refreshed periodically from
   EIA/DOE reporting.
 - `spr_capacity_mbbl`: the maximum reserve capacity, used to cap restocking.
 
-When crude prices spike above the trigger threshold, the model releases
-reserves at up to `spr_max_draw_mbpd`, but never more than what remains in
-`spr_level_mbbl` — a reserve that starts low can only prop up price for so
-long before it runs out of barrels to draw on. When prices fall below the
-floor, restocking becomes a mild drain on supply and rebuilds the level, up to
-`spr_capacity_mbbl`.
+These thresholds are ratios rather than absolute dollars on purpose.
+"Unusually expensive crude" is only meaningful relative to what the market
+already expects — an absolute trigger set near the prevailing spot price
+fires on essentially every path and turns a contingent policy response into a
+permanent drag on the forecast.
 
-### 6. Interaction between variables
+When crude spikes above the trigger, the model releases reserves at up to
+`spr_max_draw_mbpd`, but never more than what remains in `spr_level_mbbl` — a
+reserve that starts low can only prop up price for so long before it runs out
+of barrels to draw on. Below the floor, restocking becomes a mild drain on
+supply and rebuilds the level, up to `spr_capacity_mbbl`.
+
+### 7. Interaction between variables
 
 The model works by coupling the drivers like this:
 
-1. Crude price is driven by stochastic volatility and jump risk.
-2. Sovereign production (Saudi, Russia, US shale, Iran, and the rest-of-world
-   aggregate) determines physical supply availability and whether the market
-   is tight or loose.
-3. Freight and chokepoint risk change delivery costs and add market stress;
-   the shipping insurance premium adds a second, faster-reverting cost spike
-   on top of freight, both scaled by chokepoint throughput.
-4. Seasonal crack spreads modify refinery margins and therefore retail fuel
-   prices.
-5. SPR intervention acts as a policy shock that dampens or amplifies the crude
-   price path depending on the price regime.
+1. The forward curves set the expected path for crude and both crack spreads.
+2. Crude diffuses lognormally around that path, with compensated jumps.
+3. Sovereign production responds to *deviation* from the path, damping moves
+   away from it in either direction.
+4. Crack spreads revert toward their own anchor at their fitted speed, with
+   calibrated dollar volatility.
+5. Freight and chokepoint risk add delivery cost and a persistent supply
+   shock; the shipping insurance premium adds a second, faster-reverting cost
+   spike on top of freight, both scaled by chokepoint throughput.
+6. SPR intervention acts as a policy shock at the extremes of the price
+   distribution.
 
 The final pump price is not just the commodity price. It is the crude price path,
 plus refining margin, plus freight, plus the shipping insurance premium, plus
@@ -251,13 +344,32 @@ whole chain, not just the immediate station price you see in the moment.
 After a successful run, the repository contains:
 
 - `params.json`: legacy market calibration inputs
-- `params_macro.json`: sovereign supply, SPR, freight, crack, and seasonal inputs
+- `params_macro.json`: forward curves, sovereign supply, SPR, freight, crack,
+  jump, and seasonal inputs
 - `results_gas.csv`: one simulated gasoline path per row
 - `results_diesel.csv`: one simulated diesel path per row
 - `results_macro_gas.csv`: macro-factor gasoline simulations
 - `results_macro_diesel.csv`: macro-factor diesel simulations
+- `anchor_path.csv`: the deterministic curve-implied anchor (crude, both
+  cracks, and both retail prices) that the simulation is built around
 - `gasoline_forecast.png`: chart for the gasoline path with the as-of date
 - `diesel_forecast.png`: chart for the diesel path with the as-of date
+
+### Reading the forecast charts
+
+Each chart carries three lines, and the difference between them is the point:
+
+- **Market forward curve (anchor)** — what the CL/HO/RB curves imply.
+- **Mean forecast** — the simulation's expected path. This sits essentially
+  on the anchor; if it drifts away from it, the supply, freight, or SPR blocks
+  are injecting a view, which is worth investigating.
+- **Median forecast** — sits *below* the mean at longer horizons because
+  crude is lognormal. That gap is distributional, not directional.
+
+A falling median is therefore not automatically a bearish signal, and a
+trailing uptrend in the historical overlay does not imply the forecast should
+continue it: the forecast follows the forward curve, and the curve is
+frequently in backwardation while spot has been rising.
 
 ### Diesel Forecast
 
