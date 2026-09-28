@@ -225,7 +225,8 @@ def plot_scenario_paths(scenarios, bands_by_id, commodity, out_file):
     for i, scenario in enumerate(scenarios):
         bands = bands_by_id[scenario["id"]]
         color = PALETTE[i % len(PALETTE)]
-        ax.plot(days, bands["p50"], color=color, linewidth=2, label=scenario["label"])
+        linestyle = "-" if i % 2 == 0 else ":"  # alternate solid/dotted so adjacent colors stay distinguishable
+        ax.plot(days, bands["p50"], color=color, linewidth=2, linestyle=linestyle, label=scenario["label"])
 
     ax.set_title(f"180-Day Scenario Outlook: Retail {commodity}", color=INK,
                  fontsize=14, fontweight="bold", loc="left")
