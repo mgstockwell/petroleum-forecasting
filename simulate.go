@@ -39,6 +39,14 @@ type MacroParams struct {
 	JumpMu     float64 `json:"jump_mu"`
 	JumpSigma  float64 `json:"jump_sigma"`
 
+	// Optional scenario shock: a proportional crude-price shift phased into
+	// the anchor path linearly over ShockRampDays, then held. Scenarios use
+	// this rather than overriding S0 so a supply shock builds as cargoes miss
+	// and stocks draw instead of fully repricing overnight, and so every
+	// scenario still starts at today's observed price.
+	ShockPct      float64 `json:"shock_pct"`
+	ShockRampDays float64 `json:"shock_ramp_days"`
+
 	CrackGas0           float64 `json:"crack_gas_0"`
 	CrackDiesel0        float64 `json:"crack_diesel_0"`
 	CrackGasKappa       float64 `json:"crack_gas_kappa"`
@@ -239,6 +247,20 @@ func interpCurve(curve []CurvePoint, t float64) float64 {
 	return curve[last].Value
 }
 
+// shockRampFraction is the share of a scenario shock in force at day t: zero
+// today, rising linearly to one at rampDays and held there. With no ramp set
+// the shock is in full force from the first step, but never at t=0, so the
+// anchor always starts at the observed spot price the paths themselves do.
+func shockRampFraction(t, rampDays float64) float64 {
+	if t <= 0 {
+		return 0
+	}
+	if rampDays <= 0 {
+		return 1
+	}
+	return math.Min(t/rampDays, 1)
+}
+
 // buildAnchors produces the deterministic path the market implies for crude
 // and the two crack spreads over the horizon.
 //
@@ -273,6 +295,7 @@ func buildAnchors(p MacroParams) (crude, crackGas, crackDiesel []float64) {
 		if useCrude && crudeBase > 0 {
 			crude[t] *= math.Pow(interpCurve(p.CurveCrude, float64(t))/crudeBase, weight)
 		}
+		crude[t] *= 1 + p.ShockPct*shockRampFraction(float64(t), p.ShockRampDays)
 	}
 
 	omega := 2.0 * math.Pi / 365.25

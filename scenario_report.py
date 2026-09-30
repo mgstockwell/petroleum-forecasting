@@ -40,6 +40,13 @@ ANCHOR_CSV = "anchor_path.csv"
 # simplifying assumption for illustrative "what-if" sizing, not a fitted
 # elasticity - see the Methodology section of the generated report.
 ELASTICITY_MULTIPLIER = 6.0
+# Days over which a scenario's crude-price shock is phased in (see
+# simulate.go's shock_ramp_days). Physical supply shocks reach the pump as
+# cargoes miss, inventories draw, and retail re-marks with a lag of a few
+# weeks - they do not fully reprice overnight - so the ramp keeps every
+# scenario starting at today's real price and reaching its full shock by the
+# day-30 column of the summary tables.
+SHOCK_RAMP_DAYS = 30
 
 # Fixed-order categorical palette (validated for colorblind-safe adjacent
 # contrast); slot order must not be re-cycled across scenarios.
@@ -96,7 +103,8 @@ def build_scenarios(base):
     def shocked(supply_delta_mbpd, extra_overrides):
         shock = price_shock(supply_delta_mbpd)
         overrides = {
-            "s0": base["s0"] * (1 + shock),
+            "shock_pct": shock,
+            "shock_ramp_days": SHOCK_RAMP_DAYS,
             "sigma_crude": base["sigma_crude"] * (1 + 0.5 * abs(shock)),
         }
         overrides.update(extra_overrides)
@@ -255,14 +263,11 @@ def percentile_bands(df):
 
 
 def plot_scenario_paths(scenarios, bands_by_id, commodity, out_file):
-    # Scenario overrides include an immediate crude-price shock (shocked()),
-    # so each scenario's day-1 simulated value already differs - correct for
-    # the day30+ figures in the summary table, but it makes every line start
-    # from a different "today" price, which today does not actually have (it
-    # is one known, real, unshocked number). Prepend that single real value -
-    # the unshocked base case's own first simulated step - as a day-0 point on
-    # every line/band so they all visibly converge there, then diverge from
-    # day 1 onward by however much each scenario's shock moves the price.
+    # Every path in every scenario starts at today's observed price (s0 is
+    # never overridden - shocks ramp in via shock_pct/shock_ramp_days), but
+    # the simulator only writes out days 1..180. Prepend that shared day-0
+    # value, taken from the unshocked base case, so the chart shows the
+    # common starting point explicitly rather than implying it.
     today_price = bands_by_id["base"]["p50"][0]
 
     def with_today(series):
@@ -444,6 +449,9 @@ def render_report(scenarios, summary_rows, as_of, base, aaa_prices):
         f"global supply added or removed is assumed to move crude price "
         f"{ELASTICITY_MULTIPLIER:.0f}% in the opposite direction (a simplifying "
         "short-run elasticity assumption, not a fitted econometric estimate), "
+        f"phased in linearly over the first {SHOCK_RAMP_DAYS} days rather than "
+        "overnight - so every scenario starts at today's observed price and "
+        "the day-30 figures reflect the full shock - "
         "with volatility scaled up in proportion to shock size so tail scenarios "
         "carry wider, not just higher or lower, confidence bands. This is a "
         "model output for illustrative what-if analysis, not investment advice.\n"
