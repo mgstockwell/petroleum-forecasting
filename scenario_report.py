@@ -20,7 +20,11 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
-from calibrate import CHOKEPOINT_CALM_FLOOR, load_disruption_severity
+from calibrate import (
+    CHOKEPOINT_CALM_FLOOR,
+    CHOKEPOINT_FULL_CLOSURE_TARGETS,
+    load_disruption_severity,
+)
 
 PARAMS_FILE = "params_macro.json"
 SIM_BINARY = "simulate.exe"
@@ -109,8 +113,12 @@ def build_scenarios(base):
         # fixed multiple of "no disruption" even when the base case itself
         # already carries a nonzero disruption_severity blend (see
         # calibrate.py's CHOKEPOINT_CALM_FLOOR/blend_chokepoint_params).
-        "chokepoint_lambda": CHOKEPOINT_CALM_FLOOR["chokepoint_lambda"] * 4.0,
-        "shipping_cost_0": CHOKEPOINT_CALM_FLOOR["shipping_cost_0"] * 3.0,
+        # Includes freight_0 (not just the jump frequency/shipping cost) so
+        # the closure's freight premium actually persists for the scenario's
+        # duration - freight mean-reverts toward freight_0 every step in
+        # simulate.go, so leaving it at the base value would let a "closure"
+        # fade back to near-baseline freight within ~2-3 months.
+        **CHOKEPOINT_FULL_CLOSURE_TARGETS,
     })
     saudi_cut_overrides, saudi_cut_shock = shocked(saudi_cut_delta, {
         "saudi_prod": base["saudi_prod"] * 0.8,
@@ -129,8 +137,7 @@ def build_scenarios(base):
     })
     worst_case_overrides, worst_case_shock = shocked(worst_case_delta, {
         # Anchored to the calm floor for the same reason as Hormuz Closure.
-        "chokepoint_lambda": CHOKEPOINT_CALM_FLOOR["chokepoint_lambda"] * 4.0,
-        "shipping_cost_0": CHOKEPOINT_CALM_FLOOR["shipping_cost_0"] * 3.0,
+        **CHOKEPOINT_FULL_CLOSURE_TARGETS,
         "saudi_prod": base["saudi_prod"] * 0.8,
         "saudi_cap": base["saudi_cap"] * 0.8,
     })
@@ -172,6 +179,7 @@ def build_scenarios(base):
                 # Hormuz Closure scenario above.
                 "chokepoint_lambda": CHOKEPOINT_CALM_FLOOR["chokepoint_lambda"] * 0.2,
                 "shipping_cost_0": CHOKEPOINT_CALM_FLOOR["shipping_cost_0"] * 0.5,
+                "freight_0": CHOKEPOINT_CALM_FLOOR["freight_0"] * 0.5,
                 "sigma_crude": base["sigma_crude"] * 0.85,
             },
             "supply_shock_pct": 0.0,
