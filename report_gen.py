@@ -8,6 +8,7 @@ import pandas as pd
 import yfinance as yf
 
 from calibrate import _get_price_frame
+import scenario_report as sr
 
 PARAMS_FILE = "params_macro.json"
 ANCHOR_FILE = "anchor_path.csv"
@@ -18,6 +19,10 @@ TAX_GAS = 0.57
 DIST_GAS = 0.65
 TAX_DIESEL = 0.65
 DIST_DIESEL = 0.85
+
+# Stress scenarios overlaid on the forecast charts as single plausible paths
+# (see scenario_report.build_scenarios for the full set/ids).
+OVERLAY_SCENARIO_IDS = ["hormuz_closure", "saudi_cut"]
 
 
 def load_freight_assumptions():
@@ -82,7 +87,71 @@ def fetch_historical_implied_retail(days=BACKTEST_DAYS):
         return None
 
 
-def generate_chart(commodity, filename, color_base, historical, anchor):
+def pick_representative_path(df):
+    """Picks one simulated path - not an average across paths - that best
+    represents the scenario: the single trajectory closest (least-squares) to
+    the cross-sectional median at every day. This keeps the real day-to-day
+    jumps/vol of an actual simulated path intact, unlike the percentile bands
+    or mean/median lines, which are aggregates across all paths.
+    """
+    median = df.median(axis=0)
+    deviations = ((df - median) ** 2).sum(axis=1)
+    return df.loc[deviations.idxmin()].to_numpy()
+
+
+def build_overlay_scenario_paths():
+    """Runs the Hormuz Closure and Saudi Production -20% stress scenarios
+    once each and returns one plausible single-path trajectory per commodity
+    per scenario, for overlaying on the forecast charts.
+
+    Temporarily overwrites params_macro.json and the simulator's result/anchor
+    CSVs (scenario_report.run_scenario's only interface), then restores
+    whatever was on disk before this ran, so the rest of the pipeline still
+    sees base-case output.
+    """
+    if not os.path.exists(sr.PARAMS_FILE):
+        return {}, {}
+
+    sr.ensure_simulator_built()
+    base, original_params_text = sr.load_base_params()
+    scenario_list = sr.build_scenarios(base)
+    scenarios = {s["id"]: s for s in scenario_list}
+    colors = {s["id"]: sr.PALETTE[i % len(sr.PALETTE)]
+              for i, s in enumerate(scenario_list)}
+
+    cached_csvs = {}
+    for source, targets in (
+        (sr.GAS_CSV, (sr.GAS_CSV, sr.LEGACY_GAS_CSV)),
+        (sr.DIESEL_CSV, (sr.DIESEL_CSV, sr.LEGACY_DIESEL_CSV)),
+        (sr.ANCHOR_CSV, (sr.ANCHOR_CSV,)),
+    ):
+        if os.path.exists(source):
+            with open(source) as f:
+                cached_csvs[source] = (f.read(), targets)
+
+    gas_paths, diesel_paths = {}, {}
+    try:
+        for scenario_id in OVERLAY_SCENARIO_IDS:
+            scenario = scenarios[scenario_id]
+            print(f"Running overlay scenario: {scenario['label']}...")
+            params = {**base, **scenario["overrides"]}
+            gas_df, diesel_df = sr.run_scenario(params)
+            color = colors[scenario_id]
+            label = f"{scenario['label']} (plausible single path)"
+            gas_paths[label] = (pick_representative_path(gas_df), color)
+            diesel_paths[label] = (pick_representative_path(diesel_df), color)
+    finally:
+        with open(sr.PARAMS_FILE, "w") as f:
+            f.write(original_params_text)
+        for content, targets in cached_csvs.values():
+            for filename in targets:
+                with open(filename, "w") as f:
+                    f.write(content)
+
+    return gas_paths, diesel_paths
+
+
+def generate_chart(commodity, filename, color_base, historical, anchor, scenario_paths=None):
     print(f"Generating chart for {commodity}...")
     as_of = date.today().strftime("%Y-%m-%d")
     df = pd.read_csv(filename, header=None).astype(float)
@@ -111,6 +180,11 @@ def generate_chart(commodity, filename, color_base, historical, anchor):
     if anchor is not None:
         ax.plot(forward_days, anchor[:len(forward_days)], color="#1a6fb5", linewidth=2,
                 linestyle=(0, (5, 2)), label="Market-implied anchor (forward curve)")
+
+    for label, (path, color) in (scenario_paths or {}).items():
+        ax.plot(forward_days, path[:len(forward_days)], color=color, linewidth=1.3,
+                alpha=0.9, linestyle="-.", label=label)
+
     # The mean tracks the curve anchor; the median sits below it because crude
     # is lognormal, so high volatility drags the median down even with no
     # bearish view. Both are shown so that gap is visible rather than implied.
@@ -142,5 +216,6 @@ if __name__ == "__main__":
     historical = fetch_historical_implied_retail()
     hist_gas, hist_diesel = historical if historical is not None else (None, None)
     anchors = load_anchor() or {}
-    generate_chart("Gasoline", gas_file, "blue", hist_gas, anchors.get("Gasoline"))
-    generate_chart("Diesel", diesel_file, "red", hist_diesel, anchors.get("Diesel"))
+    gas_scenario_paths, diesel_scenario_paths = build_overlay_scenario_paths()
+    generate_chart("Gasoline", gas_file, "blue", hist_gas, anchors.get("Gasoline"), gas_scenario_paths)
+    generate_chart("Diesel", diesel_file, "red", hist_diesel, anchors.get("Diesel"), diesel_scenario_paths)

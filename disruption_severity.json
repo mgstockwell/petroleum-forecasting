@@ -1,0 +1,6 @@
+{
+    "severity": 0.4,
+    "as_of": "2026-09-30",
+    "source": "EIA weekly retail diesel $5.97->$6.29->$6.53/gal over 3 weeks; Goldman Sachs/Morgan Stanley notes on distillate tightness, refinery crunch, and rerouted tanker freight amid Hormuz-related disruption",
+    "notes": "Manual judgment call: 0 = calm/default constants, 1 = full Hormuz Closure scenario severity. Update as conditions evolve; this is not pulled live."
+}

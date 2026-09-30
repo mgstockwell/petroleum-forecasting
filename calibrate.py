@@ -14,6 +14,7 @@ Three groups of inputs are produced:
     rather than today's state.
 """
 import json
+import os
 from datetime import date, datetime
 
 import numpy as np
@@ -38,6 +39,58 @@ MONTH_CODES = {1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",
 # or near expiry and their settlements get noisy/illiquid.
 MIN_CURVE_DAYS = 5
 TRADING_DAYS = 252.0
+
+# Calm-condition defaults for the chokepoint/freight mechanics. These are
+# structural properties of the model, not live-calibrated from data, and
+# represent "no disruption happening right now".
+CHOKEPOINT_CALM_FLOOR = {
+    "freight_0": 2.50,
+    "chokepoint_lambda": 1.5,
+    "chokepoint_jump_mu": 5.0,
+    # Disruption half-life of ~21 days, so a chokepoint event restricts
+    # supply for weeks rather than for a single simulation step.
+    "chokepoint_decay": 12.0,
+    "hormuz_rate": 20.0,
+    "bab_rate": 9.0,
+    "shipping_cost_0": 0.15,
+}
+# Values these fields would take at disruption_severity=1.0 (equivalent to
+# scenario_report.py's "Hormuz Closure" scenario). Only fields with a
+# meaningful full-closure target are listed; the rest of
+# CHOKEPOINT_CALM_FLOOR is left unblended.
+CHOKEPOINT_FULL_CLOSURE_TARGETS = {
+    "freight_0": CHOKEPOINT_CALM_FLOOR["freight_0"] * 3.0,
+    "chokepoint_lambda": CHOKEPOINT_CALM_FLOOR["chokepoint_lambda"] * 4.0,
+    "shipping_cost_0": CHOKEPOINT_CALM_FLOOR["shipping_cost_0"] * 3.0,
+}
+DISRUPTION_SEVERITY_FILE = "disruption_severity.json"
+
+
+def load_disruption_severity():
+    """Reads the manually-maintained current-conditions severity dial.
+
+    Not pulled live - update disruption_severity.json by hand as conditions
+    evolve, citing the source/date that justifies the value. Defaults to 0.0
+    (today's calm-floor behavior) if the file is absent, so the pipeline
+    still runs for anyone who hasn't set it up.
+    """
+    if not os.path.exists(DISRUPTION_SEVERITY_FILE):
+        return {"severity": 0.0, "as_of": None, "source": None, "notes": None}
+    with open(DISRUPTION_SEVERITY_FILE) as f:
+        return json.load(f)
+
+
+def blend_chokepoint_params(severity):
+    """Linearly blends the calm-floor chokepoint params toward their
+    full-closure equivalents by `severity` (0=calm, 1=full Hormuz Closure
+    scenario severity), leaving unlisted fields at their calm-floor value.
+    """
+    severity = max(0.0, min(1.0, severity))
+    blended = dict(CHOKEPOINT_CALM_FLOOR)
+    for field, target in CHOKEPOINT_FULL_CLOSURE_TARGETS.items():
+        calm = CHOKEPOINT_CALM_FLOOR[field]
+        blended[field] = calm + severity * (target - calm)
+    return blended
 
 
 def _get_price_frame(raw_data):
@@ -247,6 +300,12 @@ def calibrate_daily_parameters(lookback_days=SHORT_LOOKBACK_DAYS):
         span = curves["curve_crude"][-1][0]
         print(f"  Built {len(curves['curve_crude'])}-point curves out to day {span}.")
 
+    severity_info = load_disruption_severity()
+    chokepoint_params = blend_chokepoint_params(severity_info["severity"])
+    if severity_info["severity"] > 0:
+        print(f"  Disruption severity {severity_info['severity']:.2f} "
+              f"(as of {severity_info['as_of']}): {severity_info['source']}")
+
     sovereign_state = {
         "saudi_prod": 9.0,
         "saudi_cap": 12.0,
@@ -294,15 +353,10 @@ def calibrate_daily_parameters(lookback_days=SHORT_LOOKBACK_DAYS):
         # curve's drift (futures are a risk-neutral expectation, not a
         # real-world forecast - see the README).
         "curve_drift_weight": 1.0,
-        "freight_0": 2.50,
-        "chokepoint_lambda": 1.5,
-        "chokepoint_jump_mu": 5.0,
-        # Disruption half-life of ~21 days, so a chokepoint event restricts
-        # supply for weeks rather than for a single simulation step.
-        "chokepoint_decay": 12.0,
-        "hormuz_rate": 20.0,
-        "bab_rate": 9.0,
-        "shipping_cost_0": 0.15,
+        # Freight/chokepoint fields are blended from CHOKEPOINT_CALM_FLOOR
+        # toward CHOKEPOINT_FULL_CLOSURE_TARGETS by disruption_severity.json's
+        # severity dial - see load_disruption_severity/blend_chokepoint_params.
+        **chokepoint_params,
         "sims": 2000,
         # SPR thresholds are relative to the market-implied forward price, not
         # absolute dollars: "unusually expensive crude" is only meaningful

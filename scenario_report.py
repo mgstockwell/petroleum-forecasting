@@ -20,6 +20,8 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
+from calibrate import CHOKEPOINT_CALM_FLOOR, load_disruption_severity
+
 PARAMS_FILE = "params_macro.json"
 SIM_BINARY = "simulate.exe"
 GAS_CSV = "results_macro_gas.csv"
@@ -103,8 +105,12 @@ def build_scenarios(base):
     worst_case_delta = hormuz_closure_delta + saudi_cut_delta
 
     hormuz_closure_overrides, hormuz_closure_shock = shocked(hormuz_closure_delta, {
-        "chokepoint_lambda": base["chokepoint_lambda"] * 4.0,
-        "shipping_cost_0": base["shipping_cost_0"] * 3.0,
+        # Anchored to the calm floor, not `base`, so this scenario stays a
+        # fixed multiple of "no disruption" even when the base case itself
+        # already carries a nonzero disruption_severity blend (see
+        # calibrate.py's CHOKEPOINT_CALM_FLOOR/blend_chokepoint_params).
+        "chokepoint_lambda": CHOKEPOINT_CALM_FLOOR["chokepoint_lambda"] * 4.0,
+        "shipping_cost_0": CHOKEPOINT_CALM_FLOOR["shipping_cost_0"] * 3.0,
     })
     saudi_cut_overrides, saudi_cut_shock = shocked(saudi_cut_delta, {
         "saudi_prod": base["saudi_prod"] * 0.8,
@@ -122,8 +128,9 @@ def build_scenarios(base):
         "us_cap": base["us_cap"] * 1.15,
     })
     worst_case_overrides, worst_case_shock = shocked(worst_case_delta, {
-        "chokepoint_lambda": base["chokepoint_lambda"] * 4.0,
-        "shipping_cost_0": base["shipping_cost_0"] * 3.0,
+        # Anchored to the calm floor for the same reason as Hormuz Closure.
+        "chokepoint_lambda": CHOKEPOINT_CALM_FLOOR["chokepoint_lambda"] * 4.0,
+        "shipping_cost_0": CHOKEPOINT_CALM_FLOOR["shipping_cost_0"] * 3.0,
         "saudi_prod": base["saudi_prod"] * 0.8,
         "saudi_cap": base["saudi_cap"] * 0.8,
     })
@@ -132,7 +139,12 @@ def build_scenarios(base):
         {
             "id": "base",
             "label": "Base Case",
-            "summary": "Current calibrated market conditions; no policy or geopolitical shock applied.",
+            "summary": (
+                "Current calibrated market conditions, including the "
+                "manually-reviewed disruption_severity.json blend toward "
+                "current chokepoint/freight conditions (see Methodology); "
+                "no additional policy or geopolitical shock applied on top."
+            ),
             "overrides": {},
             "supply_shock_pct": 0.0,
         },
@@ -156,8 +168,10 @@ def build_scenarios(base):
                 "halves, with no direct change to physical supply."
             ),
             "overrides": {
-                "chokepoint_lambda": base["chokepoint_lambda"] * 0.2,
-                "shipping_cost_0": base["shipping_cost_0"] * 0.5,
+                # Anchored to the calm floor for the same reason as the
+                # Hormuz Closure scenario above.
+                "chokepoint_lambda": CHOKEPOINT_CALM_FLOOR["chokepoint_lambda"] * 0.2,
+                "shipping_cost_0": CHOKEPOINT_CALM_FLOOR["shipping_cost_0"] * 0.5,
                 "sigma_crude": base["sigma_crude"] * 0.85,
             },
             "supply_shock_pct": 0.0,
@@ -313,6 +327,9 @@ def build_summary_rows(scenarios, gas_bands_by_id, diesel_bands_by_id):
             "gas_day180_p50": gb["p50"][179],
             "gas_day180_p10": gb["p10"][179],
             "gas_day180_p90": gb["p90"][179],
+            "diesel_day30_p50": db["p50"][29],
+            "diesel_day60_p50": db["p50"][59],
+            "diesel_day90_p50": db["p50"][89],
             "diesel_day180_p50": db["p50"][179],
         })
     return rows
@@ -370,11 +387,15 @@ def render_report(scenarios, summary_rows, as_of, base, aaa_prices):
         )
     lines.append("")
 
-    lines.append("## Scenario Summary Table (Diesel, Day 180 median)\n")
-    lines.append("| Scenario | Day 180 Diesel |")
-    lines.append("|---|---|")
+    lines.append("## Scenario Summary Table (Diesel)\n")
+    lines.append("| Scenario | Day 30 | Day 60 | Day 90 | Day 180 |")
+    lines.append("|---|---|---|---|---|")
     for row in summary_rows:
-        lines.append(f"| {row['label']} | ${row['diesel_day180_p50']:.2f} |")
+        lines.append(
+            f"| {row['label']} | ${row['diesel_day30_p50']:.2f} | "
+            f"${row['diesel_day60_p50']:.2f} | ${row['diesel_day90_p50']:.2f} | "
+            f"${row['diesel_day180_p50']:.2f} |"
+        )
     lines.append("")
 
     lines.append("## Scenario Detail\n")
@@ -426,6 +447,25 @@ def render_report(scenarios, summary_rows, as_of, base, aaa_prices):
         "placeholder inputs rather than today's market — re-run "
         "`python calibrate.py` before trusting the baseline.\n"
     )
+    severity_info = load_disruption_severity()
+    if severity_info["severity"] > 0:
+        lines.append(
+            f"**Current-conditions input:** the base case blends "
+            f"{severity_info['severity']:.0%} of the way from calm-floor "
+            "chokepoint/freight assumptions toward the Hormuz Closure "
+            f"scenario's values, per `disruption_severity.json` (reviewed "
+            f"{severity_info['as_of']}: {severity_info['source']}). This is "
+            "a manual, periodically-updated judgment call, not a live feed — "
+            "re-review it as conditions change.\n"
+        )
+    else:
+        lines.append(
+            "**Current-conditions input:** `disruption_severity.json` is "
+            "absent or set to 0, so the base case uses calm-floor "
+            "chokepoint/freight assumptions regardless of real-world "
+            "conditions. Add/update that file to reflect an active "
+            "disruption.\n"
+        )
 
     with open("oil_market_outlook.md", "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
