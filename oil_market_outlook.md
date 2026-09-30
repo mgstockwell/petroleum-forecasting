@@ -5,31 +5,31 @@
 
 ## Executive Summary
 
-Under current calibrated conditions, the model's base-case median retail gasoline price reaches **$4.30/gal** 180 days out (10th-90th percentile range $3.52-$5.45). Across the six stress scenarios modeled below, the most bullish case is **Combined Shock: Hormuz Closure + Saudi Cut**, which pushes the day-180 median to $5.73/gal (+33.3% vs. base), while **Iran Sanctions Lifted** offers the most relief, at $4.05/gal (-5.8% vs. base).
+Under current calibrated conditions, the model's base-case median retail gasoline price reaches **$4.33/gal** 180 days out (10th-90th percentile range $3.52-$5.42). Across the six stress scenarios modeled below, the most bullish case is **Combined Shock: Hormuz Closure + Saudi Cut**, which pushes the day-180 median to $5.71/gal (+31.9% vs. base), while **Iran Sanctions Lifted** offers the most relief, at $4.09/gal (-5.5% vs. base).
 
 ## Scenario Summary Table (Gasoline)
 
 | Scenario | Day 30 | Day 90 | Day 180 | Day 180 10th-90th pct. | vs. Base |
 |---|---|---|---|---|---|
-| Base Case | $4.63 | $4.28 | $4.30 | $3.52-$5.45 | - |
-| Hormuz Closure | $6.12 | $5.70 | $5.59 | $4.16-$7.76 | +30.0% |
-| Hormuz De-Risked | $4.52 | $4.16 | $4.17 | $3.39-$5.17 | -3.0% |
-| Saudi Production -20% | $4.85 | $4.48 | $4.48 | $3.62-$5.81 | +4.2% |
-| Iran Sanctions Lifted | $4.34 | $4.01 | $4.05 | $3.26-$5.12 | -5.8% |
-| US Shale Surge | $4.49 | $4.16 | $4.21 | $3.41-$5.33 | -2.1% |
-| Combined Shock: Hormuz Closure + Saudi Cut | $6.32 | $5.88 | $5.73 | $4.25-$8.11 | +33.3% |
+| Base Case | $4.62 | $4.30 | $4.33 | $3.52-$5.42 | - |
+| Hormuz Closure | $6.11 | $5.66 | $5.59 | $4.24-$7.84 | +29.2% |
+| Hormuz De-Risked | $4.51 | $4.16 | $4.17 | $3.38-$5.22 | -3.7% |
+| Saudi Production -20% | $4.87 | $4.50 | $4.52 | $3.60-$5.77 | +4.4% |
+| Iran Sanctions Lifted | $4.34 | $4.01 | $4.09 | $3.29-$5.13 | -5.5% |
+| US Shale Surge | $4.50 | $4.15 | $4.19 | $3.42-$5.24 | -3.2% |
+| Combined Shock: Hormuz Closure + Saudi Cut | $6.35 | $5.87 | $5.71 | $4.18-$8.31 | +31.9% |
 
 ## Scenario Summary Table (Diesel)
 
 | Scenario | Day 30 | Day 60 | Day 90 | Day 180 |
 |---|---|---|---|---|
-| Base Case | $6.34 | $6.21 | $6.05 | $5.59 |
-| Hormuz Closure | $7.81 | $7.63 | $7.46 | $6.84 |
-| Hormuz De-Risked | $6.24 | $6.05 | $5.93 | $5.44 |
-| Saudi Production -20% | $6.57 | $6.39 | $6.24 | $5.77 |
-| Iran Sanctions Lifted | $6.05 | $5.88 | $5.79 | $5.35 |
-| US Shale Surge | $6.20 | $6.05 | $5.91 | $5.47 |
-| Combined Shock: Hormuz Closure + Saudi Cut | $8.07 | $7.81 | $7.66 | $7.00 |
+| Base Case | $6.34 | $6.18 | $6.04 | $5.57 |
+| Hormuz Closure | $7.82 | $7.61 | $7.39 | $6.88 |
+| Hormuz De-Risked | $6.23 | $6.06 | $5.90 | $5.41 |
+| Saudi Production -20% | $6.58 | $6.41 | $6.27 | $5.78 |
+| Iran Sanctions Lifted | $6.06 | $5.88 | $5.77 | $5.35 |
+| US Shale Surge | $6.22 | $6.03 | $5.92 | $5.47 |
+| Combined Shock: Hormuz Closure + Saudi Cut | $8.04 | $7.87 | $7.65 | $7.01 |
 
 ## Scenario Detail
 
@@ -37,43 +37,43 @@ Under current calibrated conditions, the model's base-case median retail gasolin
 
 Current calibrated market conditions, including the manually-reviewed disruption_severity.json blend toward current chokepoint/freight conditions (see Methodology); no additional policy or geopolitical shock applied on top.
 
-Day-180 median: **$4.30/gal** gasoline (base case), $5.59/gal diesel.
+Day-180 median: **$4.33/gal** gasoline (base case), $5.57/gal diesel.
 
 ### Hormuz Closure
 
 Strait of Hormuz effectively shut: roughly 55% of its normal throughput is assumed offline, chokepoint disruption frequency quadruples, and the war-risk shipping premium triples.
 
-Day-180 median: **$5.59/gal** gasoline (+30.0% vs. base), $6.84/gal diesel.
+Day-180 median: **$5.59/gal** gasoline (+29.2% vs. base), $6.88/gal diesel.
 
 ### Hormuz De-Risked
 
 Geopolitical tension around the strait fully unwinds: disruption frequency falls to a fifth of baseline and the war-risk premium halves, with no direct change to physical supply.
 
-Day-180 median: **$4.17/gal** gasoline (-3.0% vs. base), $5.44/gal diesel.
+Day-180 median: **$4.17/gal** gasoline (-3.7% vs. base), $5.41/gal diesel.
 
 ### Saudi Production -20%
 
 Saudi Arabia cuts output and spare capacity by 20%, e.g. an OPEC+ supply-discipline shock.
 
-Day-180 median: **$4.48/gal** gasoline (+4.2% vs. base), $5.77/gal diesel.
+Day-180 median: **$4.52/gal** gasoline (+4.4% vs. base), $5.78/gal diesel.
 
 ### Iran Sanctions Lifted
 
 Sanctions are lifted, letting Iranian output ramp toward a materially higher production ceiling.
 
-Day-180 median: **$4.05/gal** gasoline (-5.8% vs. base), $5.35/gal diesel.
+Day-180 median: **$4.09/gal** gasoline (-5.5% vs. base), $5.35/gal diesel.
 
 ### US Shale Surge
 
 US shale operators ramp drilling activity, lifting both current output and spare capacity.
 
-Day-180 median: **$4.21/gal** gasoline (-2.1% vs. base), $5.47/gal diesel.
+Day-180 median: **$4.19/gal** gasoline (-3.2% vs. base), $5.47/gal diesel.
 
 ### Combined Shock: Hormuz Closure + Saudi Cut
 
 A simultaneous Hormuz closure and 20% Saudi production cut - a tail-risk stack of the two largest supply-side scenarios.
 
-Day-180 median: **$5.73/gal** gasoline (+33.3% vs. base), $7.00/gal diesel.
+Day-180 median: **$5.71/gal** gasoline (+31.9% vs. base), $7.01/gal diesel.
 
 ## Charts
 
