@@ -48,9 +48,17 @@ ELASTICITY_MULTIPLIER = 6.0
 # day-30 column of the summary tables.
 SHOCK_RAMP_DAYS = 30
 
-# Fixed-order categorical palette (validated for colorblind-safe adjacent
-# contrast); slot order must not be re-cycled across scenarios.
-PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7"]
+# Fixed-order categorical palette, one entry per scenario in build_scenarios'
+# order (base, hormuz_closure, hormuz_reopened, saudi_cut, iran_lifted,
+# us_shale_surge, worst_case); slot order must not be re-cycled across
+# scenarios. Hues are spread deliberately far apart (blue/red/green/orange/
+# purple/olive/black) rather than sampled from a continuous colormap, since
+# adjacent scenarios sharing a hue family (e.g. two greens or two oranges)
+# is what made the previous palette hard to tell apart.
+PALETTE = ["#1b6ca8", "#c1272d", "#2ca02c", "#e08214", "#8e44ad", "#8c6d1f", "#111111"]
+# Paired with PALETTE by index so no two scenarios share both a color and a
+# dash pattern - a second channel of differentiation on top of color alone.
+LINESTYLES = ["-", "--", ":", "-.", (0, (3, 1, 1, 1, 1, 1)), (0, (5, 2)), (0, (4, 1))]
 
 INK = "#0b0b0b"
 SECONDARY_INK = "#52514e"
@@ -286,7 +294,7 @@ def plot_scenario_paths(scenarios, bands_by_id, commodity, out_file):
     for i, scenario in enumerate(scenarios):
         bands = bands_by_id[scenario["id"]]
         color = PALETTE[i % len(PALETTE)]
-        linestyle = "-" if i % 2 == 0 else ":"  # alternate solid/dotted so adjacent colors stay distinguishable
+        linestyle = LINESTYLES[i % len(LINESTYLES)]
         ax.plot(days, with_today(bands["p50"]), color=color, linewidth=2, linestyle=linestyle, label=scenario["label"])
 
     ax.set_title(f"180-Day Scenario Outlook: Retail {commodity}", color=INK,
