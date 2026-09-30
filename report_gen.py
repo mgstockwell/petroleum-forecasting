@@ -138,14 +138,9 @@ def build_overlay_scenario_paths():
             scenario = scenarios[scenario_id]
             print(f"Running overlay scenario: {scenario['label']}...")
             params = {**base, **scenario["overrides"]}
-            # The scenario overrides include an immediate crude-price shock
-            # (scenario_report.shocked()) so the stress-test bands react
-            # instantly, but that makes this overlay path visibly jump away
-            # from today's real price at day 1. Reset s0 so the path starts
-            # where the chart's history/anchor/mean lines do, and only
-            # diverges from there via the scenario's structural mechanics
-            # (chokepoint frequency, freight cost, production levels).
-            params["s0"] = base["s0"]
+            # Scenario shocks ramp in via shock_pct/shock_ramp_days rather than
+            # overriding s0, so this path starts where the chart's history,
+            # anchor, and mean lines do and diverges from there.
             gas_df, diesel_df = sr.run_scenario(params)
             label = f"{scenario['label']} (plausible single path)"
             style_kwargs = (style["color"], style["linestyle"])
