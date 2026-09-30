@@ -255,21 +255,34 @@ def percentile_bands(df):
 
 
 def plot_scenario_paths(scenarios, bands_by_id, commodity, out_file):
-    days = np.arange(1, len(bands_by_id["base"]["p50"]) + 1)
+    # Scenario overrides include an immediate crude-price shock (shocked()),
+    # so each scenario's day-1 simulated value already differs - correct for
+    # the day30+ figures in the summary table, but it makes every line start
+    # from a different "today" price, which today does not actually have (it
+    # is one known, real, unshocked number). Prepend that single real value -
+    # the unshocked base case's own first simulated step - as a day-0 point on
+    # every line/band so they all visibly converge there, then diverge from
+    # day 1 onward by however much each scenario's shock moves the price.
+    today_price = bands_by_id["base"]["p50"][0]
+
+    def with_today(series):
+        return np.concatenate(([today_price], series))
+
+    days = np.arange(0, len(bands_by_id["base"]["p50"]) + 1)
     fig, ax = plt.subplots(figsize=(12, 6.5), facecolor=SURFACE)
     ax.set_facecolor(SURFACE)
 
     base_bands = bands_by_id["base"]
-    ax.fill_between(days, base_bands["p10"], base_bands["p90"], color=PALETTE[0],
+    ax.fill_between(days, with_today(base_bands["p10"]), with_today(base_bands["p90"]), color=PALETTE[0],
                      alpha=0.15, linewidth=0, label="Base Case 10th-90th pct.")
-    ax.fill_between(days, base_bands["p25"], base_bands["p75"], color=PALETTE[0],
+    ax.fill_between(days, with_today(base_bands["p25"]), with_today(base_bands["p75"]), color=PALETTE[0],
                      alpha=0.28, linewidth=0, label="Base Case 25th-75th pct.")
 
     for i, scenario in enumerate(scenarios):
         bands = bands_by_id[scenario["id"]]
         color = PALETTE[i % len(PALETTE)]
         linestyle = "-" if i % 2 == 0 else ":"  # alternate solid/dotted so adjacent colors stay distinguishable
-        ax.plot(days, bands["p50"], color=color, linewidth=2, linestyle=linestyle, label=scenario["label"])
+        ax.plot(days, with_today(bands["p50"]), color=color, linewidth=2, linestyle=linestyle, label=scenario["label"])
 
     ax.set_title(f"180-Day Scenario Outlook: Retail {commodity}", color=INK,
                  fontsize=14, fontweight="bold", loc="left")
