@@ -21,8 +21,14 @@ TAX_DIESEL = 0.65
 DIST_DIESEL = 0.85
 
 # Stress scenarios overlaid on the forecast charts as single plausible paths
-# (see scenario_report.build_scenarios for the full set/ids).
-OVERLAY_SCENARIO_IDS = ["hormuz_closure", "saudi_cut"]
+# (see scenario_report.build_scenarios for the full set/ids). Colors are
+# chosen to stay distinct in hue from both charts' percentile-band colors
+# (blue/red) and from each other, rather than reused from scenario_report's
+# PALETTE, which clusters several scenarios in the same orange/red family.
+OVERLAY_SCENARIO_STYLES = {
+    "hormuz_closure": {"color": "#9400d3", "linestyle": "--"},
+    "saudi_cut": {"color": "#009e73", "linestyle": "-."},
+}
 
 
 def load_freight_assumptions():
@@ -114,10 +120,7 @@ def build_overlay_scenario_paths():
 
     sr.ensure_simulator_built()
     base, original_params_text = sr.load_base_params()
-    scenario_list = sr.build_scenarios(base)
-    scenarios = {s["id"]: s for s in scenario_list}
-    colors = {s["id"]: sr.PALETTE[i % len(sr.PALETTE)]
-              for i, s in enumerate(scenario_list)}
+    scenarios = {s["id"]: s for s in sr.build_scenarios(base)}
 
     cached_csvs = {}
     for source, targets in (
@@ -131,15 +134,23 @@ def build_overlay_scenario_paths():
 
     gas_paths, diesel_paths = {}, {}
     try:
-        for scenario_id in OVERLAY_SCENARIO_IDS:
+        for scenario_id, style in OVERLAY_SCENARIO_STYLES.items():
             scenario = scenarios[scenario_id]
             print(f"Running overlay scenario: {scenario['label']}...")
             params = {**base, **scenario["overrides"]}
+            # The scenario overrides include an immediate crude-price shock
+            # (scenario_report.shocked()) so the stress-test bands react
+            # instantly, but that makes this overlay path visibly jump away
+            # from today's real price at day 1. Reset s0 so the path starts
+            # where the chart's history/anchor/mean lines do, and only
+            # diverges from there via the scenario's structural mechanics
+            # (chokepoint frequency, freight cost, production levels).
+            params["s0"] = base["s0"]
             gas_df, diesel_df = sr.run_scenario(params)
-            color = colors[scenario_id]
             label = f"{scenario['label']} (plausible single path)"
-            gas_paths[label] = (pick_representative_path(gas_df), color)
-            diesel_paths[label] = (pick_representative_path(diesel_df), color)
+            style_kwargs = (style["color"], style["linestyle"])
+            gas_paths[label] = (pick_representative_path(gas_df), *style_kwargs)
+            diesel_paths[label] = (pick_representative_path(diesel_df), *style_kwargs)
     finally:
         with open(sr.PARAMS_FILE, "w") as f:
             f.write(original_params_text)
@@ -181,9 +192,9 @@ def generate_chart(commodity, filename, color_base, historical, anchor, scenario
         ax.plot(forward_days, anchor[:len(forward_days)], color="#1a6fb5", linewidth=2,
                 linestyle=(0, (5, 2)), label="Market-implied anchor (forward curve)")
 
-    for label, (path, color) in (scenario_paths or {}).items():
-        ax.plot(forward_days, path[:len(forward_days)], color=color, linewidth=1.3,
-                alpha=0.9, linestyle="-.", label=label)
+    for label, (path, color, linestyle) in (scenario_paths or {}).items():
+        ax.plot(forward_days, path[:len(forward_days)], color=color, linewidth=1.5,
+                alpha=0.9, linestyle=linestyle, label=label)
 
     # The mean tracks the curve anchor; the median sits below it because crude
     # is lognormal, so high volatility drags the median down even with no
