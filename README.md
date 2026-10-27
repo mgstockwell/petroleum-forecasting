@@ -402,6 +402,30 @@ These three chart files and the report are tracked in Git (unlike the daily
 pipeline outputs above) since they represent a point-in-time analysis rather
 than a disposable daily run.
 
+Supply-shock scenarios use a **front-loaded exponential adjustment** rather
+than a fixed 30-day linear climb. `SHOCK_HALF_LIFE_DAYS` in `scenario_report.py`
+sets `shock_half_life_days` in the simulator (currently 7 days): 50% of the
+crude-anchor adjustment is incorporated after one week, 75% after two weeks,
+and about 95% after 30 days. Subsequent increments taper smoothly toward a
+lasting premium or discount; there is no forced recovery or day-30 kink.
+This timing is an illustrative assumption, not a fitted retail pass-through
+estimate or a separate crude-to-pump lag. Older simulator inputs without a
+positive half-life retain their `shock_ramp_days` behavior (or an immediate
+shock if no ramp is set). The base case is unchanged.
+
+The chart lines are **medians across simulated paths**, not predictions of
+daily price fluctuations, so they should look smoother than realized prices.
+Day 0 uses the base case's modeled retail spot state, not its day-1 median
+or the separately reported AAA snapshot. Standalone scenario runs rebuild
+the simulator when its source is newer than the executable.
+
+Run the shock-response regression tests with:
+
+```powershell
+go test simulate.go simulate_test.go
+.\.venv\Scripts\python.exe -m unittest test_scenario_report.py
+```
+
 ## Deployment
 
 1. Install Python, Go, and the Python dependencies on the target Windows

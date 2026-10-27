@@ -40,13 +40,9 @@ ANCHOR_CSV = "anchor_path.csv"
 # simplifying assumption for illustrative "what-if" sizing, not a fitted
 # elasticity - see the Methodology section of the generated report.
 ELASTICITY_MULTIPLIER = 6.0
-# Days over which a scenario's crude-price shock is phased in (see
-# simulate.go's shock_ramp_days). Physical supply shocks reach the pump as
-# cargoes miss, inventories draw, and retail re-marks with a lag of a few
-# weeks - they do not fully reprice overnight - so the ramp keeps every
-# scenario starting at today's real price and reaching its full shock by the
-# day-30 column of the summary tables.
-SHOCK_RAMP_DAYS = 30
+# Illustrative adjustment speed, not an empirically fitted retail lag:
+# half the remaining shock is incorporated each week, with no day-30 cutoff.
+SHOCK_HALF_LIFE_DAYS = 7
 
 # Fixed-order categorical palette, one entry per scenario in build_scenarios'
 # order (base, hormuz_closure, hormuz_reopened, saudi_cut, iran_lifted,
@@ -112,7 +108,7 @@ def build_scenarios(base):
         shock = price_shock(supply_delta_mbpd)
         overrides = {
             "shock_pct": shock,
-            "shock_ramp_days": SHOCK_RAMP_DAYS,
+            "shock_half_life_days": SHOCK_HALF_LIFE_DAYS,
             "sigma_crude": base["sigma_crude"] * (1 + 0.5 * abs(shock)),
         }
         overrides.update(extra_overrides)
@@ -244,7 +240,8 @@ def build_scenarios(base):
 
 
 def ensure_simulator_built():
-    if not os.path.exists(SIM_BINARY):
+    if (not os.path.exists(SIM_BINARY)
+            or os.path.getmtime("simulate.go") > os.path.getmtime(SIM_BINARY)):
         print("Building simulate.exe...")
         subprocess.run(["go", "build", "-o", SIM_BINARY, "simulate.go"], check=True)
 
@@ -270,14 +267,9 @@ def percentile_bands(df):
     }
 
 
-def plot_scenario_paths(scenarios, bands_by_id, commodity, out_file):
-    # Every path in every scenario starts at today's observed price (s0 is
-    # never overridden - shocks ramp in via shock_pct/shock_ramp_days), but
-    # the simulator only writes out days 1..180. Prepend that shared day-0
-    # value, taken from the unshocked base case, so the chart shows the
-    # common starting point explicitly rather than implying it.
-    today_price = bands_by_id["base"]["p50"][0]
-
+def plot_scenario_paths(scenarios, bands_by_id, commodity, out_file, today_price):
+    # CSVs contain days 1..180, so prepend the actual day-0 model state,
+    # not the first simulated day's median.
     def with_today(series):
         return np.concatenate(([today_price], series))
 
@@ -457,12 +449,23 @@ def render_report(scenarios, summary_rows, as_of, base, aaa_prices):
         f"global supply added or removed is assumed to move crude price "
         f"{ELASTICITY_MULTIPLIER:.0f}% in the opposite direction (a simplifying "
         "short-run elasticity assumption, not a fitted econometric estimate), "
-        f"phased in linearly over the first {SHOCK_RAMP_DAYS} days rather than "
-        "overnight - so every scenario starts at today's observed price and "
-        "the day-30 figures reflect the full shock - "
+        "incorporated through a front-loaded exponential adjustment with a "
+        f"{SHOCK_HALF_LIFE_DAYS}-day half-life: 50% after one week, 75% after "
+        "two weeks, and about 95% by day 30, with no abrupt cutoff. The "
+        "premium or discount persists while the scenario remains in force; "
+        "no reopening or recovery date is assumed. The adjustment speed is "
+        "an illustrative assumption, not a fitted retail pass-through "
+        "estimate or a separate crude-to-pump lag. Charts share the base "
+        "case's day-0 modeled retail price (not the AAA snapshot), "
         "with volatility scaled up in proportion to shock size so tail scenarios "
         "carry wider, not just higher or lower, confidence bands. This is a "
         "model output for illustrative what-if analysis, not investment advice.\n"
+    )
+    lines.append(
+        "**Reading the lines:** scenario lines are cross-path medians, not "
+        "individual daily price trajectories. Individual paths contain "
+        "random moves and jumps; medians are naturally smoother. No cosmetic "
+        "noise is added to make the outlook look like a realized price path.\n"
     )
     lines.append(
         "**Drift anchor:** the base case has no independent view on direction. "
@@ -550,8 +553,11 @@ def main():
                 f.write(cached_base_csvs[source])
 
     as_of = date.today().strftime("%Y-%m-%d")
-    plot_scenario_paths(scenarios, gas_bands_by_id, "Gasoline", "scenario_gasoline_paths.png")
-    plot_scenario_paths(scenarios, diesel_bands_by_id, "Diesel", "scenario_diesel_paths.png")
+    crude_cost_today = (base["s0"] + base["freight_0"] + base["shipping_cost_0"]) / 42.0
+    gas_today = crude_cost_today + base["crack_gas_0"] / 42.0 + 0.57 + 0.65
+    diesel_today = crude_cost_today + base["crack_diesel_0"] / 42.0 + 0.65 + 0.85
+    plot_scenario_paths(scenarios, gas_bands_by_id, "Gasoline", "scenario_gasoline_paths.png", gas_today)
+    plot_scenario_paths(scenarios, diesel_bands_by_id, "Diesel", "scenario_diesel_paths.png", diesel_today)
     summary_rows = build_summary_rows(scenarios, gas_bands_by_id, diesel_bands_by_id)
     plot_day180_ranking(scenarios, summary_rows, "scenario_day180_ranking.png")
     render_report(scenarios, summary_rows, as_of, base, aaa_prices)

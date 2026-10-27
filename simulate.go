@@ -39,13 +39,11 @@ type MacroParams struct {
 	JumpMu     float64 `json:"jump_mu"`
 	JumpSigma  float64 `json:"jump_sigma"`
 
-	// Optional scenario shock: a proportional crude-price shift phased into
-	// the anchor path linearly over ShockRampDays, then held. Scenarios use
-	// this rather than overriding S0 so a supply shock builds as cargoes miss
-	// and stocks draw instead of fully repricing overnight, and so every
-	// scenario still starts at today's observed price.
-	ShockPct      float64 `json:"shock_pct"`
-	ShockRampDays float64 `json:"shock_ramp_days"`
+	// A positive half-life gives a front-loaded adjustment toward a lasting
+	// shock. Without it, preserve the legacy linear ramp (or immediate shock).
+	ShockPct          float64 `json:"shock_pct"`
+	ShockHalfLifeDays float64 `json:"shock_half_life_days"`
+	ShockRampDays     float64 `json:"shock_ramp_days"`
 
 	CrackGas0           float64 `json:"crack_gas_0"`
 	CrackDiesel0        float64 `json:"crack_diesel_0"`
@@ -261,6 +259,18 @@ func shockRampFraction(t, rampDays float64) float64 {
 	return math.Min(t/rampDays, 1)
 }
 
+// shockFraction closes half the remaining adjustment each half-life, without
+// a fixed completion date or an artificial kink at day 30.
+func shockFraction(t float64, p MacroParams) float64 {
+	if t <= 0 {
+		return 0
+	}
+	if p.ShockHalfLifeDays > 0 {
+		return -math.Expm1(-math.Ln2 * t / p.ShockHalfLifeDays)
+	}
+	return shockRampFraction(t, p.ShockRampDays)
+}
+
 // buildAnchors produces the deterministic path the market implies for crude
 // and the two crack spreads over the horizon.
 //
@@ -295,7 +305,7 @@ func buildAnchors(p MacroParams) (crude, crackGas, crackDiesel []float64) {
 		if useCrude && crudeBase > 0 {
 			crude[t] *= math.Pow(interpCurve(p.CurveCrude, float64(t))/crudeBase, weight)
 		}
-		crude[t] *= 1 + p.ShockPct*shockRampFraction(float64(t), p.ShockRampDays)
+		crude[t] *= 1 + p.ShockPct*shockFraction(float64(t), p)
 	}
 
 	omega := 2.0 * math.Pi / 365.25
