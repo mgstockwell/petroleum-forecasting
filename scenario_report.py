@@ -12,7 +12,7 @@ Run after calibrate.py, e.g.:
 import json
 import os
 import subprocess
-from datetime import date
+from datetime import date, timedelta
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -67,6 +67,105 @@ GRID = "#e1e0d9"
 DEFAULT_SIMS = 2000
 
 AAA_GAS_PRICES_URL = "https://gasprices.aaa.com/"
+PORTWATCH_HORMUZ_URL = "https://portwatch.imf.org/pages/cb5856222a5b4105adc6ee7e880a1730"
+PORTWATCH_QUERY_URL = (
+    "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services/"
+    "Daily_Chokepoints_Data/FeatureServer/0/query"
+)
+TRAFFIC_MAX_LAG_DAYS = 7
+
+
+def fetch_hormuz_traffic(as_of=None):
+    as_of = as_of if as_of is not None else date.today()
+    response = requests.get(PORTWATCH_QUERY_URL, params={
+        "where": "portid='chokepoint6'",
+        "outFields": "date,n_tanker,n_total",
+        "orderByFields": "date DESC",
+        "resultRecordCount": 7,
+        "f": "json",
+    }, timeout=20)
+    response.raise_for_status()
+    data = response.json()
+    if "error" in data:
+        raise ValueError(f"PortWatch query failed: {data['error']}")
+    if not isinstance(data.get("features"), list) or not data["features"]:
+        raise ValueError("PortWatch returned no Hormuz daily traffic records")
+
+    daily = {}
+    for feature in data["features"]:
+        row = feature["attributes"]
+        day = date.fromisoformat(row["date"])
+        if day > as_of:
+            raise ValueError(f"PortWatch returned a future traffic date: {day}")
+        if day in daily:
+            raise ValueError(f"PortWatch returned duplicate traffic date: {day}")
+        for field in ("n_tanker", "n_total"):
+            if type(row[field]) is not int or row[field] < 0:
+                raise ValueError(f"PortWatch invalid {field} on {day}: {row[field]!r}")
+        if row["n_tanker"] > row["n_total"]:
+            raise ValueError(f"PortWatch tanker count exceeds total on {day}")
+        daily[day] = row
+
+    end = max(daily)
+    start = end - timedelta(days=6)
+    window = [start + timedelta(days=i) for i in range(7)]
+    missing = [day.isoformat() for day in window if day not in daily]
+    lag = (as_of - end).days
+    warnings = []
+    if lag > TRAFFIC_MAX_LAG_DAYS:
+        warnings.append(
+            f"STALE: latest observation is {lag} days old "
+            f"(warning threshold: more than {TRAFFIC_MAX_LAG_DAYS} days). "
+            "This is not traffic for the current trailing week."
+        )
+    if missing:
+        warnings.append(
+            "INCOMPLETE: missing dates " + ", ".join(missing)
+            + "; seven-day averages withheld. Missing observations are not zeros."
+        )
+
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "as_of": as_of.isoformat(),
+        "lag_days": lag,
+        "observed_days": 7 - len(missing),
+        "tanker_average": None if missing else sum(daily[day]["n_tanker"] for day in window) / 7,
+        "total_average": None if missing else sum(daily[day]["n_total"] for day in window) / 7,
+        "warnings": warnings,
+    }
+
+
+def render_hormuz_traffic(traffic):
+    lines = [
+        "## Hormuz Traffic Monitor\n",
+        f"[IMF PortWatch]({PORTWATCH_HORMUZ_URL}), retrieved {traffic['as_of']}. "
+        f"Seven-calendar-day window ending on the latest available observation: "
+        f"**{traffic['start']} to {traffic['end']}**; "
+        f"coverage **{traffic['observed_days']}/7 days**; "
+        f"latest observation **{traffic['lag_days']} days old**.\n",
+    ]
+    if traffic["tanker_average"] is not None:
+        lines.append(
+            f"Observed tanker transits: **{traffic['tanker_average']:.2f}/day**; "
+            f"all vessel transits: **{traffic['total_average']:.2f}/day** "
+            "(arithmetic seven-day averages, including reported zeros).\n"
+        )
+    else:
+        lines.append("**Seven-day averages unavailable: incomplete date coverage.**\n")
+    for warning in traffic["warnings"]:
+        lines.append(f"> **Traffic data warning:** {warning}\n")
+    lines.append(
+        "**AIS-quality limitation:** GPS jamming, AIS spoofing, and vessels "
+        "going dark can distort observed counts in either direction. A seven-day "
+        "average smooths daily variation but cannot correct these biases. No "
+        "spoofing correction or statistical confidence interval is claimed; "
+        "independent traffic evidence is needed. Transit counts are not oil "
+        "cargo volumes or a calibrated disruption-severity score. This monitor "
+        "does not change the manually reviewed `disruption_severity.json` "
+        "input or any simulation parameters.\n"
+    )
+    return "\n".join(lines)
 
 
 def fetch_aaa_prices():
@@ -361,7 +460,7 @@ def build_summary_rows(scenarios, gas_bands_by_id, diesel_bands_by_id):
     return rows
 
 
-def render_report(scenarios, summary_rows, as_of, base, aaa_prices):
+def render_report(scenarios, summary_rows, as_of, base, aaa_prices, traffic):
     sims = base.get("sims") or DEFAULT_SIMS
     calibrated_date = base.get("date_calibrated") or "unknown"
     base_row = next(r for r in summary_rows if r["id"] == "base")
@@ -401,6 +500,7 @@ def render_report(scenarios, summary_rows, as_of, base, aaa_prices):
         f"vs. base).\n"
     )
 
+    lines.append(render_hormuz_traffic(traffic))
     lines.append("## Scenario Summary Table (Gasoline)\n")
     lines.append("| Scenario | Day 30 | Day 90 | Day 180 | Day 180 10th-90th pct. | vs. Base |")
     lines.append("|---|---|---|---|---|---|")
@@ -516,6 +616,9 @@ def main():
     ensure_simulator_built()
     base, original_text = load_base_params()
     aaa_prices = fetch_aaa_prices()
+    traffic = fetch_hormuz_traffic()
+    for warning in traffic["warnings"]:
+        print(f"Traffic data warning: {warning}")
     scenarios = build_scenarios(base)
 
     gas_bands_by_id = {}
@@ -560,7 +663,7 @@ def main():
     plot_scenario_paths(scenarios, diesel_bands_by_id, "Diesel", "scenario_diesel_paths.png", diesel_today)
     summary_rows = build_summary_rows(scenarios, gas_bands_by_id, diesel_bands_by_id)
     plot_day180_ranking(scenarios, summary_rows, "scenario_day180_ranking.png")
-    render_report(scenarios, summary_rows, as_of, base, aaa_prices)
+    render_report(scenarios, summary_rows, as_of, base, aaa_prices, traffic)
 
 
 if __name__ == "__main__":

@@ -42,7 +42,9 @@ simulations, and generates forecast charts for retail gasoline and diesel.
   the current national average regular and diesel prices from AAA's public
   gas-prices page and shows them as a dated snapshot in the report. If AAA is
   unavailable or its table changes, report generation fails instead of
-  publishing missing or stale retail prices.
+  publishing missing or stale retail prices. It also fetches PortWatch's
+  latest seven-calendar-day Hormuz traffic window with coverage, data lag,
+  and AIS-quality warnings; this does not change scenario parameters.
 - `.gitignore` excludes generated data outputs, the local virtual environment,
   and copied workspace artifacts.
 
@@ -53,6 +55,7 @@ simulations, and generates forecast charts for retail gasoline and diesel.
 - Go 1.20 or newer
 - Internet access when calibration and report generation run, so `yfinance`
   can fetch NYMEX data and the report can read AAA's public gas-prices page
+  and the IMF PortWatch traffic API
 
 Install the Python dependencies in a virtual environment:
 
@@ -425,6 +428,76 @@ Run the shock-response regression tests with:
 go test simulate.go simulate_test.go
 .\.venv\Scripts\python.exe -m unittest test_scenario_report.py
 ```
+
+### Current-Conditions Input (`disruption_severity.json`)
+
+The base case's chokepoint and freight assumptions come from a hand-maintained
+dial, not a live feed. `calibrate.py` reads `disruption_severity.json` and
+blends three inputs linearly from calm conditions (`0`) to the Hormuz Closure
+scenario (`1`):
+
+| Parameter | 0 (calm) | 0.4 | 1 (closure) |
+|---|---|---|---|
+| `freight_0` ($/bbl) | 2.50 | 4.50 | 7.50 |
+| `chokepoint_lambda` (events/yr) | 1.5 | 3.3 | 6.0 |
+| `shipping_cost_0` ($/bbl) | 0.15 | 0.27 | 0.45 |
+
+It changes freight and disruption risk only. It removes no physical supply
+from the base case; that happens only in the Hormuz Closure scenarios. If the
+file is missing, severity defaults to `0`.
+
+```json
+{
+    "severity": 0.4,
+    "as_of": "YYYY-MM-DD",
+    "source": "Specific, dated evidence for the value",
+    "notes": "Manual judgment call: 0 = calm/default constants, 1 = full Hormuz Closure scenario severity."
+}
+```
+
+- `severity`: the only value the model uses; clamped to 0-1.
+- `as_of`: the date you reviewed conditions; printed in the report.
+- `source`: the evidence behind the value; also printed in the report.
+- `notes`: informational only.
+
+Suggested scale (a convention, not enforced in code): `0-0.1` normal transit;
+`0.2-0.4` elevated tension, rerouting, higher tanker and insurance rates;
+`0.5-0.7` attacks on shipping or partial flow loss; `0.8-1.0` strait
+effectively shut.
+
+**Hormuz traffic source:** [IMF PortWatch - Strait of Hormuz](https://portwatch.imf.org/pages/cb5856222a5b4105adc6ee7e880a1730)
+publishes free daily vessel transit counts from satellite AIS data. You can
+also query it directly; this returns the latest 30 days of tanker and total
+transits:
+
+```text
+https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services/Daily_Chokepoints_Data/FeatureServer/0/query?where=portid%3D%27chokepoint6%27&outFields=date,n_tanker,n_total,capacity_tanker&orderByFields=date%20DESC&resultRecordCount=30&f=json
+```
+
+The report automatically fetches the latest seven records and checks coverage
+of the **seven calendar days ending at the latest observation**. It averages
+`n_tanker` and `n_total` separately, including reported zeros, and prints the
+window dates, retrieval date, coverage, and observation lag. Missing dates are
+not treated as zero: if any of the seven dates are absent, averages are
+withheld and a warning lists the gaps. A data lag greater than seven days
+produces a prominent stale-data warning. This is an operational freshness
+threshold, not a guarantee of accuracy. Network/API failures, empty responses,
+duplicate/future dates, and invalid counts stop report generation explicitly.
+
+PortWatch warns that GPS jamming, AIS spoofing, and vessels going dark affect
+this region. Averaging reduces daily variation but cannot correct those
+biases, so the report labels these as **observed, uncorrected transit counts**.
+It does not fabricate a correction factor or confidence interval. Compare
+with an independently verified normal-traffic baseline and corroborate with
+independent traffic estimates, tanker rates, war-risk insurance quotes, and
+news reports before changing severity. Vessel counts are not oil cargo volumes,
+and their deficit is not a calibrated freight-risk score. Traffic reporting
+never updates `disruption_severity.json` or simulation parameters automatically.
+
+After editing the file, rerun `calibrate.py`, the simulator, `report_gen.py`,
+and `scenario_report.py` (or `run_pipeline.bat`, which also publishes).
+Editing the file alone changes nothing. If conditions are unchanged, still
+update `as_of` and note the re-review in `source`.
 
 ## Deployment
 
